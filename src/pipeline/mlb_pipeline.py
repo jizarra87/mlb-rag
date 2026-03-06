@@ -1,10 +1,10 @@
-from src.ingestion.scrape_espn import scrape_games
-from src.processing.create_documents import create_documents
-from src.embeddings.embed_and_store import embed_and_store
+from ingestion.scrape_espn import mlb_api
+from processing.create_documents import create_documents
+from embeddings.embed_and_store import embed_and_store
 
 
 def ingest_mlb():
-    scrape_games()
+    mlb_api()
 
 
 def process_documents():
