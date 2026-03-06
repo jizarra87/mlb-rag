@@ -20,7 +20,9 @@ services:
       - "5432:5432"
 
   airflow:
-    image: apache/airflow:2.9.3
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     depends_on:
       - postgres
     environment:
@@ -31,6 +33,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
       - ./data:/opt/airflow/data
+      - ./.env.dev:/opt/airflow/.env.dev
     ports:
       - "8080:8080"
     command: standalone

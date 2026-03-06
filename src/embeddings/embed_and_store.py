@@ -10,7 +10,7 @@ import os
 load_dotenv(".env.dev")
 
 # conectar a Qdrant
-client = QdrantClient("localhost", port=6333)
+client = QdrantClient("qdrant", port=6333)
 
 # modelo de embeddings
 embed_model = OpenAIEmbedding(
