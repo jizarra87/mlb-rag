@@ -1,22 +1,14 @@
 from datetime import datetime, timedelta
-import subprocess
-
+from pipeline.mlb_pipeline import ingest_mlb, process_documents, store_embeddings
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+import sys
+import os
+
+sys.path.append("/opt/airflow/src")
 
 
-def run_mlb_api():
-    subprocess.run(["python", "/opt/airflow/src/ingestion/mlb_api.py"], check=True)
 
-
-def run_create_documents():
-    subprocess.run(["python", "/opt/airflow/src/processing/create_documents.py"], check=True)
-
-
-def run_embed_and_store():
-    subprocess.run(["python", "/opt/airflow/src/embeddings/embed_and_store.py"], check=True)
-
-    
 default_args = {
     "owner": "juan",
     "retries": 1,
@@ -34,19 +26,19 @@ with DAG(
     tags=["mlb", "rag"],
 ) as dag:
 
-    ingest_mlb_data = PythonOperator(
+    ingest_task = PythonOperator(
         task_id="ingest_mlb_data",
-        python_callable=run_mlb_api,
+        python_callable=ingest_mlb
     )
 
-    create_documents = PythonOperator(
+    process_task = PythonOperator(
         task_id="create_documents",
-        python_callable=run_create_documents,
+        python_callable=process_documents
     )
 
-    embed_and_store = PythonOperator(
+    embed_task = PythonOperator(
         task_id="embed_and_store",
-        python_callable=run_embed_and_store,
+        python_callable=store_embeddings
     )
 
-    ingest_mlb_data >> create_documents >> embed_and_store
+    ingest_task >> process_task >> embed_task
