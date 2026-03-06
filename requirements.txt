@@ -1,0 +1,9 @@
+apache-airflow
+llama-index
+qdrant-client
+beautifulsoup4
+requests
+python-dotenv
+openai
+tiktoken
+pydantic
