@@ -20,7 +20,7 @@ def run_embed_and_store():
 default_args = {
     "owner": "juan",
     "retries": 1,
-    "retry_delay": timedelta(minutes=5),
+    "retry_delay": timedelta(minutes=1),
 }
 
 
