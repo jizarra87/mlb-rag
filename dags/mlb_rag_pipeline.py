@@ -6,17 +6,17 @@ from airflow.operators.python import PythonOperator
 
 
 def run_mlb_api():
-    subprocess.run(["python", "src/ingestion/mlb_api.py"], check=True)
+    subprocess.run(["python", "/opt/airflow/src/ingestion/mlb_api.py"], check=True)
 
 
 def run_create_documents():
-    subprocess.run(["python", "src/processing/create_documents.py"], check=True)
+    subprocess.run(["python", "/opt/airflow/src/processing/create_documents.py"], check=True)
 
 
 def run_embed_and_store():
-    subprocess.run(["python", "src/embeddings/embed_and_store.py"], check=True)
+    subprocess.run(["python", "/opt/airflow/src/embeddings/embed_and_store.py"], check=True)
 
-
+    
 default_args = {
     "owner": "juan",
     "retries": 1,
