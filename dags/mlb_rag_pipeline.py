@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
-from src.pipeline.mlb_pipeline import ingest_mlb, process_documents, store_embeddings
+from pipeline.mlb_pipeline import ingest_mlb, process_documents, store_embeddings
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 import sys
 import os
 
-sys.path.append("/opt/airflow")
+sys.path.append("/opt/airflow/src")
 
 
 
