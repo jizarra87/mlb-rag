@@ -22,7 +22,7 @@ llm = OpenAI(
 )
 
 # Qdrant client
-client = QdrantClient("localhost", port=6333)
+client = QdrantClient("qdrant", port=6333)
 
 
 # -----------------------------
@@ -32,13 +32,12 @@ def retrieve(question):
 
     vector = embed_model.get_text_embedding(question)
 
-    results = client.query_points(
+    results = client.search(
         collection_name="mlb_articles",
-        query=vector,
+        query_vector=vector,
         limit=3
     )
-
-    return results.points
+    return results
 
 
 # -----------------------------
@@ -49,9 +48,9 @@ def generate_answer(question):
     docs = retrieve(question)
 
     context = ""
-
+    print(docs[0].payload)
     for d in docs:
-        context += d.payload["text"] + "\n"
+        context += d.payload.get("text", "") + "\n"
 
     prompt = f"""
 You are an MLB analyst.
