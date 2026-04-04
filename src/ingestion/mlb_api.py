@@ -1,22 +1,24 @@
 import requests
 import json
 
-url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+def mlb_api():
 
-response = requests.get(url)
+    url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
 
-data = response.json()
+    response = requests.get(url)
 
-print("Dates:", len(data["dates"]))
+    data = response.json()
 
-for game_day in data["dates"]:
-    for game in game_day["games"]:
-        home = game["teams"]["home"]["team"]["name"]
-        away = game["teams"]["away"]["team"]["name"]
+    print("Dates:", len(data["dates"]))
 
-        print(f"{away} vs {home}")
+    for game_day in data["dates"]:
+        for game in game_day["games"]:
+            home = game["teams"]["home"]["team"]["name"]
+            away = game["teams"]["away"]["team"]["name"]
 
-with open("data/raw/mlb_schedule.json", "w") as f:
-    json.dump(data, f, indent=2)
+            print(f"{away} vs {home}")
 
-print("Schedule saved") 
+    with open("data/raw/mlb_schedule.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+    print("Schedule saved")
