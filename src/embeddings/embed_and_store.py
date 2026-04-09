@@ -6,6 +6,7 @@ from qdrant_client.models import PointStruct
 from llama_index.embeddings.openai import OpenAIEmbedding
 from dotenv import load_dotenv
 import os
+from qdrant_client.models import VectorParams, Distance
 
 load_dotenv(".env.dev")
 
@@ -43,7 +44,14 @@ def embed_and_store():
         )
 
         points.append(point)
+    collection_name = "mlb_articles"
 
+    # Crear colección si no existe
+    if collection_name not in [c.name for c in client.get_collections().collections]:
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+        )
 
     # insertar vectores en Qdrant
     client.upsert(

@@ -29,6 +29,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow/src
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -37,3 +38,17 @@ services:
     ports:
       - "8080:8080"
     command: standalone
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: mlb-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - qdrant
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - .:/app
