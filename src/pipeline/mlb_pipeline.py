@@ -1,10 +1,10 @@
-from ingestion.mlb_api import mlb_api
+from ingestion.mlb_historical import ingest_historical
 from processing.create_documents_history import create_documents
 from embeddings.embed_and_store import embed_and_store
 
 
 def ingest_mlb():
-    mlb_api()
+    ingest_historical()
 
 
 def process_documents():

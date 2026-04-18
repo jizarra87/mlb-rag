@@ -1,5 +1,6 @@
 import requests
 import json
+import os
 
 def mlb_api():
 
@@ -18,6 +19,7 @@ def mlb_api():
 
             print(f"{away} vs {home}")
 
+    os.makedirs("data/raw", exist_ok=True)
     with open("data/raw/mlb_schedule.json", "w") as f:
         json.dump(data, f, indent=2)
 
