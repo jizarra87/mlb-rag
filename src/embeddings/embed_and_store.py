@@ -76,11 +76,11 @@ def embed_and_store(documents):
 
 
     # 🔥 limpiar colección antes de cargar
-    try:
-        client.delete_collection(collection_name)
-        print(f"Deleted existing collection: {collection_name}")
-    except Exception:
-        print("Collection does not exist, creating new one")
+    #try:
+    #    client.delete_collection(collection_name)
+    #    print(f"Deleted existing collection: {collection_name}")
+    #except Exception:
+    #    print("Collection does not exist, creating new one")
 
     # Crear colección si no existe
     if collection_name not in [c.name for c in client.get_collections().collections]:

@@ -383,7 +383,7 @@ Rules:
 
 
 def extract_player_name(question):
-    import re
+    import re 
 
     # busca cualquier nombre tipo "Nombre Apellido"
     match = re.search(

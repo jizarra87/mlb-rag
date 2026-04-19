@@ -103,7 +103,7 @@ def extract_plays(feed_data, game_pk):
 def run_feed_ingestion():
     print("Fetching games...")
 
-    game_pks = get_schedule("2026-03-20", "2026-04-18")
+    game_pks = get_schedule("2026-04-14", "2026-04-18")
 
     print(f"Games found: {len(game_pks)}")
 
