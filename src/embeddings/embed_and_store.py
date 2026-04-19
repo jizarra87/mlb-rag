@@ -1,46 +1,39 @@
-import json
+import logging
+import os
+import time
 import uuid
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct
-from llama_index.embeddings.openai import OpenAIEmbedding
 from dotenv import load_dotenv
-import os
-from qdrant_client.models import VectorParams, Distance
-import time
+from llama_index.embeddings.openai import OpenAIEmbedding
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
 load_dotenv(".env.dev")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+
 
 def embed_and_store(documents):
     start_time = time.time()
     errors = 0
-    # conectar a Qdrant
-    client = QdrantClient(QDRANT_HOST, port=6333)
+    client = QdrantClient(QDRANT_HOST, port=QDRANT_PORT)
 
-    # modelo de embeddings
     embed_model = OpenAIEmbedding(
         model="text-embedding-3-small",
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=os.getenv("OPENAI_API_KEY"),
     )
 
-    # cargar documentos procesados
-    #with open("data/clean/documents.json") as f:
-    #    documents = json.load(f)
-
-    BATCH_SIZE = 50
+    batch_size = 50
     points = []
 
-    for i in range(0, len(documents), BATCH_SIZE):
-        batch_docs = documents[i:i+BATCH_SIZE]
-
+    for i in range(0, len(documents), batch_size):
+        batch_docs = documents[i:i + batch_size]
         texts = [doc["text"] for doc in batch_docs]
 
         try:
-            #text = doc["text"]
-            #metadata = {k: v for k, v in doc.items() if k != "text"}
-
             vectors = embed_model.get_text_embedding_batch(texts)
             time.sleep(0.2)
 
@@ -52,57 +45,59 @@ def embed_and_store(documents):
                         vector=vector,
                         payload={
                             "text": doc["text"],
-                            **metadata
-                        }
+                            **metadata,
+                        },
                     )
                 )
-
-            
-        except Exception as e:
-            errors+=1
-            print(f"Error embedding doc{i}:{e}")
+        except Exception:
+            errors += 1
+            logger.exception("Error embedding batch starting at doc %s", i)
 
         if i % 500 == 0:
             elapsed = time.time() - start_time
             rate = i / elapsed if elapsed > 0 else 0
 
-            print(f"""
+            print(
+                f"""
             Processed {i}/{len(documents)} docs
             Errors: {errors}
             Elapsed: {round(elapsed, 2)} sec
             Speed: {round(rate, 2)} docs/sec
-            """)
+            """
+            )
+
+    if errors:
+        raise RuntimeError(
+            f"Embedding aborted after {errors} failed batch(es); "
+            "existing Qdrant collection was left unchanged."
+        )
+
     collection_name = "mlb_articles"
 
-
-    # 🔥 limpiar colección antes de cargar
     try:
         client.delete_collection(collection_name)
         print(f"Deleted existing collection: {collection_name}")
     except Exception:
         print("Collection does not exist, creating new one")
 
-    # Crear colección si no existe
     if collection_name not in [c.name for c in client.get_collections().collections]:
         client.create_collection(
             collection_name=collection_name,
-            vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+            vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
         )
 
-    # insertar vectores en Qdrant
     print(f"Total points to insert: {len(points)}")
-    BATCH_SIZE = 100
+    upsert_batch_size = 100
 
-    for i in range(0, len(points), BATCH_SIZE):
-        batch = points[i:i+BATCH_SIZE]
+    for i in range(0, len(points), upsert_batch_size):
+        batch = points[i:i + upsert_batch_size]
 
         client.upsert(
             collection_name=collection_name,
-            points=batch
+            points=batch,
         )
 
-        print(f"Inserted batch {i} - {i+len(batch)}")
+        print(f"Inserted batch {i} - {i + len(batch)}")
+
     print("Upsert completed successfully")
-
-
     print("Vectors stored:", len(points))
