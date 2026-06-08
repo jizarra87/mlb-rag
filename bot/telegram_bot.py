@@ -54,12 +54,14 @@ PREDICT_KEYWORDS = [
 
 def is_prediction_question(text: str) -> bool:
     t = text.lower()
-    # Must contain a prediction keyword OR contain "vs/beat" with team names
-    has_keyword = any(kw in t for kw in PREDICT_KEYWORDS)
-    if has_keyword:
+    if any(kw in t for kw in PREDICT_KEYWORDS):
         return True
-    # "vs" or "beat" only triggers prediction if at least one side is a team name
+    # "vs/beat/versus" only triggers prediction if at least one side is a known team
     if "vs" in t or "beat" in t or "versus" in t:
+        if any(team in t for team in MLB_TEAMS):
+            return True
+    # "Team with Pitcher vs Team with Pitcher" pattern
+    if "with" in t and "vs" in t:
         return any(team in t for team in MLB_TEAMS)
     return False
 
@@ -101,27 +103,21 @@ def extract_starters_from_message(text: str):
       'Yankees vs Red Sox starting Cole and Bello'
     Returns (home_starter, away_starter) or (None, None).
     """
-    # Pattern: "Team1 with Pitcher1 vs Team2 with Pitcher2"
-    match = re.search(
-        r"with\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+vs.+with\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)",
-        text, re.IGNORECASE
-    )
+    # Pitcher name pattern: accepts "Gerrit Cole", "C.Cole", "C Cole", "Cole"
+    NAME = r"([A-Z][a-zA-Z]*\.?\s+[A-Z][a-zA-Z\-']+)"
+
+    # "Team with Pitcher vs Team with Pitcher"
+    match = re.search(rf"with\s+{NAME}\s+vs.+with\s+{NAME}", text, re.IGNORECASE)
     if match:
         return match.group(1).strip().title(), match.group(2).strip().title()
 
-    # Pattern: after comma "Cole vs Bello" or "Cole and Bello"
-    match = re.search(
-        r",\s*([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+(?:vs\.?|and)\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)",
-        text, re.IGNORECASE
-    )
+    # After comma: "Cole vs Bello" or "Cole and Bello"
+    match = re.search(rf",\s*{NAME}\s+(?:vs\.?|and)\s+{NAME}", text, re.IGNORECASE)
     if match:
         return match.group(1).strip().title(), match.group(2).strip().title()
 
-    # Pattern: "starting Cole and Bello" or "starting Cole vs Bello"
-    match = re.search(
-        r"starting\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+(?:vs\.?|and)\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)",
-        text, re.IGNORECASE
-    )
+    # "starting Pitcher1 and/vs Pitcher2"
+    match = re.search(rf"starting\s+{NAME}\s+(?:vs\.?|and)\s+{NAME}", text, re.IGNORECASE)
     if match:
         return match.group(1).strip().title(), match.group(2).strip().title()
 
