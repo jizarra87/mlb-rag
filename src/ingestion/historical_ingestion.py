@@ -1,8 +1,7 @@
 """
-Pull full 2025 regular season game summaries and play-by-play data.
-Outputs:
-  data/historical/game_summaries_2025.json  — one record per game (outcome, score, starters)
-  data/historical/plays_2025.json           — play-by-play events (same shape as full_ingestion.json)
+Pull full season game summaries (no play-by-play) for ML feature engineering.
+Output:
+  data/historical/game_summaries_{season}.json  — one record per game
 
 Usage:
   python -m src.ingestion.historical_ingestion
@@ -17,7 +16,6 @@ import time
 from src.ingestion.mlb_feed_ingestion import (
     get_game_feed,
     get_schedule,
-    extract_plays,
     extract_game_summary,
 )
 
@@ -27,7 +25,6 @@ HISTORICAL_DIR = "data/historical"
 def run_historical_ingestion(season: int = 2025):
     os.makedirs(HISTORICAL_DIR, exist_ok=True)
 
-    plays_file = f"{HISTORICAL_DIR}/plays_{season}.json"
     summaries_file = f"{HISTORICAL_DIR}/game_summaries_{season}.json"
 
     start_date = f"{season}-03-01"
@@ -36,14 +33,6 @@ def run_historical_ingestion(season: int = 2025):
     print(f"Fetching {season} regular season schedule ({start_date} → {end_date})...")
     game_pks = get_schedule(start_date, end_date)
     print(f"Games found: {len(game_pks)}")
-
-    # Resume from existing files if present
-    if os.path.exists(plays_file):
-        with open(plays_file, "r") as f:
-            all_plays = json.load(f)
-        print(f"Resuming: {len(all_plays)} plays already stored")
-    else:
-        all_plays = []
 
     if os.path.exists(summaries_file):
         with open(summaries_file, "r") as f:
@@ -58,7 +47,7 @@ def run_historical_ingestion(season: int = 2025):
 
     start_time = time.time()
     errors = 0
-    SAVE_EVERY = 50  # save more frequently for historical (long runs)
+    SAVE_EVERY = 50
 
     for i, game_pk in enumerate(remaining):
         try:
@@ -66,9 +55,6 @@ def run_historical_ingestion(season: int = 2025):
             if not feed:
                 errors += 1
                 continue
-
-            plays = extract_plays(feed, game_pk)
-            all_plays.extend(plays)
 
             summary = extract_game_summary(feed, game_pk)
             if summary:
@@ -78,7 +64,8 @@ def run_historical_ingestion(season: int = 2025):
                 elapsed = time.time() - start_time
                 pct = round((i + 1) / len(remaining) * 100, 1)
                 print(f"[{pct}%] {i+1}/{len(remaining)} games | {len(all_summaries)} summaries | {round(elapsed)}s | errors: {errors}")
-                _save(plays_file, all_plays, summaries_file, all_summaries)
+                with open(summaries_file, "w") as f:
+                    json.dump(all_summaries, f)
 
             time.sleep(0.2)
 
@@ -86,21 +73,16 @@ def run_historical_ingestion(season: int = 2025):
             errors += 1
             print(f"Error game {game_pk}: {e}")
 
-    _save(plays_file, all_plays, summaries_file, all_summaries)
-    elapsed = time.time() - start_time
-    print(f"\nDone. {len(all_summaries)} games | {len(all_plays)} plays | {errors} errors | {round(elapsed)}s")
-    return all_plays, all_summaries
-
-
-def _save(plays_file, plays, summaries_file, summaries):
-    with open(plays_file, "w") as f:
-        json.dump(plays, f)
     with open(summaries_file, "w") as f:
-        json.dump(summaries, f)
+        json.dump(all_summaries, f)
+
+    elapsed = time.time() - start_time
+    print(f"\nDone. {len(all_summaries)} game summaries | {errors} errors | {round(elapsed)}s")
+    return all_summaries
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Fetch season game summaries for ML training")
     parser.add_argument("--season", type=int, default=2025, help="MLB season year (default: 2025)")
     args = parser.parse_args()
 
