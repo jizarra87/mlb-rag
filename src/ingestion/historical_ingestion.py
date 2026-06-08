@@ -1,7 +1,10 @@
 """
-Pull full season game summaries (no play-by-play) for ML feature engineering.
-Output:
-  data/historical/game_summaries_{season}.json  — one record per game
+Pull full season plays and game summaries for a given MLB season.
+Outputs:
+  data/historical/plays_{season}.json           — play-by-play events
+  data/historical/game_summaries_{season}.json  — one record per game (outcome, score, starters)
+
+Both files support resume: re-running skips already-processed games.
 
 Usage:
   python -m src.ingestion.historical_ingestion
@@ -16,6 +19,7 @@ import time
 from src.ingestion.mlb_feed_ingestion import (
     get_game_feed,
     get_schedule,
+    extract_plays,
     extract_game_summary,
 )
 
@@ -25,6 +29,7 @@ HISTORICAL_DIR = "data/historical"
 def run_historical_ingestion(season: int = 2025):
     os.makedirs(HISTORICAL_DIR, exist_ok=True)
 
+    plays_file = f"{HISTORICAL_DIR}/plays_{season}.json"
     summaries_file = f"{HISTORICAL_DIR}/game_summaries_{season}.json"
 
     start_date = f"{season}-03-01"
@@ -33,6 +38,13 @@ def run_historical_ingestion(season: int = 2025):
     print(f"Fetching {season} regular season schedule ({start_date} → {end_date})...")
     game_pks = get_schedule(start_date, end_date)
     print(f"Games found: {len(game_pks)}")
+
+    if os.path.exists(plays_file):
+        with open(plays_file, "r") as f:
+            all_plays = json.load(f)
+        print(f"Resuming: {len(all_plays)} plays already stored")
+    else:
+        all_plays = []
 
     if os.path.exists(summaries_file):
         with open(summaries_file, "r") as f:
@@ -56,6 +68,9 @@ def run_historical_ingestion(season: int = 2025):
                 errors += 1
                 continue
 
+            plays = extract_plays(feed, game_pk)
+            all_plays.extend(plays)
+
             summary = extract_game_summary(feed, game_pk)
             if summary:
                 all_summaries.append(summary)
@@ -63,9 +78,8 @@ def run_historical_ingestion(season: int = 2025):
             if (i + 1) % SAVE_EVERY == 0:
                 elapsed = time.time() - start_time
                 pct = round((i + 1) / len(remaining) * 100, 1)
-                print(f"[{pct}%] {i+1}/{len(remaining)} games | {len(all_summaries)} summaries | {round(elapsed)}s | errors: {errors}")
-                with open(summaries_file, "w") as f:
-                    json.dump(all_summaries, f)
+                print(f"[{pct}%] {i+1}/{len(remaining)} games | {len(all_summaries)} summaries | {len(all_plays)} plays | {round(elapsed)}s | errors: {errors}")
+                _save(plays_file, all_plays, summaries_file, all_summaries)
 
             time.sleep(0.2)
 
@@ -73,12 +87,17 @@ def run_historical_ingestion(season: int = 2025):
             errors += 1
             print(f"Error game {game_pk}: {e}")
 
-    with open(summaries_file, "w") as f:
-        json.dump(all_summaries, f)
-
+    _save(plays_file, all_plays, summaries_file, all_summaries)
     elapsed = time.time() - start_time
-    print(f"\nDone. {len(all_summaries)} game summaries | {errors} errors | {round(elapsed)}s")
-    return all_summaries
+    print(f"\nDone. {len(all_summaries)} summaries | {len(all_plays)} plays | {errors} errors | {round(elapsed)}s")
+    return all_plays, all_summaries
+
+
+def _save(plays_file, plays, summaries_file, summaries):
+    with open(plays_file, "w") as f:
+        json.dump(plays, f)
+    with open(summaries_file, "w") as f:
+        json.dump(summaries, f)
 
 
 if __name__ == "__main__":
