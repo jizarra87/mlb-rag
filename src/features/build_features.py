@@ -91,7 +91,16 @@ def build_features(summaries, pitcher_lookup, team_lookup):
             "k9_diff":      round(home_p["k9"]   - away_p["k9"],   4),
             "bb9_diff":     round(home_p["bb9"]  - away_p["bb9"],  4),
             "whip_diff":    round(home_p["whip"] - away_p["whip"], 4),
-            # team offense diffs
+            # team offense — individual columns for predict.py lookup
+            "home_ops":     home_t["ops"],
+            "away_ops":     away_t["ops"],
+            "home_obp":     home_t["obp"],
+            "away_obp":     away_t["obp"],
+            "home_slg":     home_t["slg"],
+            "away_slg":     away_t["slg"],
+            "home_runs_pg": home_t["runs_per_game"],
+            "away_runs_pg": away_t["runs_per_game"],
+            # diffs used by the model
             "ops_diff":     round(home_t["ops"]           - away_t["ops"],           4),
             "obp_diff":     round(home_t["obp"]           - away_t["obp"],           4),
             "slg_diff":     round(home_t["slg"]           - away_t["slg"],           4),
@@ -142,7 +151,7 @@ def save_csv(rows, path):
     if not rows:
         print(f"No rows to save to {path}")
         return
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
