@@ -37,7 +37,7 @@ def load_latest_team_stats(team):
     path = f"{FEATURES_DIR}/features_all.csv"
     if not os.path.exists(path):
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8", errors="ignore") as f:
         rows = list(csv.DictReader(f))
 
     # find last game involving this team

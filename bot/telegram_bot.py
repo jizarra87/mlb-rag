@@ -27,17 +27,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Prediction trigger keywords
+MLB_TEAMS = {
+    "arizona diamondbacks", "atlanta braves", "baltimore orioles",
+    "boston red sox", "chicago cubs", "chicago white sox",
+    "cincinnati reds", "cleveland guardians", "colorado rockies",
+    "detroit tigers", "houston astros", "kansas city royals",
+    "los angeles angels", "los angeles dodgers", "miami marlins",
+    "milwaukee brewers", "minnesota twins", "new york mets",
+    "new york yankees", "oakland athletics", "philadelphia phillies",
+    "pittsburgh pirates", "san diego padres", "san francisco giants",
+    "seattle mariners", "st. louis cardinals", "tampa bay rays",
+    "texas rangers", "toronto blue jays", "washington nationals",
+    # common short forms
+    "yankees", "red sox", "dodgers", "astros", "braves", "mets",
+    "cubs", "cardinals", "giants", "padres", "phillies", "rangers",
+    "angels", "mariners", "twins", "rays", "orioles", "guardians",
+    "tigers", "royals", "brewers", "pirates", "reds", "rockies",
+    "marlins", "nationals", "athletics", "diamondbacks",
+}
+
 PREDICT_KEYWORDS = [
     "who wins", "who will win", "winner", "predict", "chance",
     "probability", "favored", "favourite", "favorite", "odds",
-    "vs", "versus", "beat",
 ]
 
 
 def is_prediction_question(text: str) -> bool:
     t = text.lower()
-    return any(kw in t for kw in PREDICT_KEYWORDS)
+    # Must contain a prediction keyword OR contain "vs/beat" with team names
+    has_keyword = any(kw in t for kw in PREDICT_KEYWORDS)
+    if has_keyword:
+        return True
+    # "vs" or "beat" only triggers prediction if at least one side is a team name
+    if "vs" in t or "beat" in t or "versus" in t:
+        return any(team in t for team in MLB_TEAMS)
+    return False
 
 
 def extract_teams_from_message(text: str):
