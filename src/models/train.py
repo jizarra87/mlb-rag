@@ -26,15 +26,20 @@ from sklearn.preprocessing import StandardScaler
 MODELS_DIR = "data/models"
 
 FEATURE_COLS = [
-    "home_win_pct",
-    "away_win_pct",
-    "win_pct_diff",
-    "home_avg_runs",
-    "away_avg_runs",
-    "avg_runs_diff",
-    "home_era",
-    "away_era",
-    "era_diff",
+    # team quality
+    "home_win_pct", "away_win_pct", "win_pct_diff",
+    # run scoring
+    "home_avg_runs", "away_avg_runs", "avg_runs_diff",
+    # pitcher stats (from plays)
+    "home_era", "away_era", "era_diff",
+    "home_k9", "away_k9",
+    "home_bb9", "away_bb9",
+    "home_whip", "away_whip", "whip_diff",
+    # team offense (from plays)
+    "home_ops", "away_ops", "ops_diff",
+    "home_obp", "away_obp",
+    "home_slg", "away_slg",
+    "home_runs_pg", "away_runs_pg", "runs_pg_diff",
 ]
 
 SPLIT_DATE = "2026-01-01"  # train = before, test = on or after
