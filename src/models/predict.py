@@ -40,17 +40,22 @@ def load_latest_team_stats(team):
     with open(path, encoding="utf-8", errors="ignore") as f:
         rows = list(csv.DictReader(f))
 
-    # find last game involving this team
     for row in reversed(rows):
         if row["home_team"] == team:
             return {
-                "pyth":        float(row["home_pyth"]),
-                "runs_pg":     float(row.get("runs_pg_diff", 0)) + 4.5,  # approx
+                "pyth":         float(row["home_pyth"]),
+                "ops":          float(row["home_ops"])  if "home_ops"  in row else 0.720,
+                "obp":          float(row["home_obp"])  if "home_obp"  in row else 0.320,
+                "slg":          float(row["home_slg"])  if "home_slg"  in row else 0.400,
+                "runs_per_game":float(row["home_runs_pg"]) if "home_runs_pg" in row else 4.5,
             }
         if row["away_team"] == team:
             return {
-                "pyth":        float(row["away_pyth"]),
-                "runs_pg":     4.5 - float(row.get("runs_pg_diff", 0)),
+                "pyth":         float(row["away_pyth"]),
+                "ops":          float(row["away_ops"])  if "away_ops"  in row else 0.720,
+                "obp":          float(row["away_obp"])  if "away_obp"  in row else 0.320,
+                "slg":          float(row["away_slg"])  if "away_slg"  in row else 0.400,
+                "runs_per_game":float(row["away_runs_pg"]) if "away_runs_pg" in row else 4.5,
             }
     return None
 
@@ -60,7 +65,7 @@ def load_latest_pitcher_stats(pitcher):
     path = f"{FEATURES_DIR}/pitcher_stats.json"
     if not os.path.exists(path):
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8", errors="ignore") as f:
         lookup = json.load(f)
 
     # pitcher_stats is keyed by game_pk — scan all games for this pitcher
@@ -89,10 +94,10 @@ def build_feature_vector(home_team, away_team, home_starter, away_starter, featu
         "k9_diff":      round(home_p["k9"]   - away_p["k9"],   4),
         "bb9_diff":     round(home_p["bb9"]  - away_p["bb9"],  4),
         "whip_diff":    round(home_p["whip"] - away_p["whip"], 4),
-        "ops_diff":     0.0,
-        "obp_diff":     0.0,
-        "slg_diff":     0.0,
-        "runs_pg_diff": 0.0,
+        "ops_diff":     round(home_t.get("ops", 0.720)           - away_t.get("ops", 0.720),           4),
+        "obp_diff":     round(home_t.get("obp", 0.320)           - away_t.get("obp", 0.320),           4),
+        "slg_diff":     round(home_t.get("slg", 0.400)           - away_t.get("slg", 0.400),           4),
+        "runs_pg_diff": round(home_t.get("runs_per_game", 4.5)   - away_t.get("runs_per_game", 4.5),   4),
     }
 
     return [[features[col] for col in feature_cols]]

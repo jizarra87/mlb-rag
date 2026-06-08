@@ -74,6 +74,13 @@ def extract_teams_from_message(text: str):
       'Will the Cubs beat the Cardinals?'
     Returns (team1, team2) or (None, None).
     """
+    # "Team with Pitcher vs Team with Pitcher" — extract teams only
+    match = re.search(r"([A-Za-z ]+?)\s+with\s+\S+\s+vs\.?\s+([A-Za-z ]+?)\s+with\s+", text, re.IGNORECASE)
+    if match:
+        t1 = match.group(1).strip().title()
+        t2 = match.group(2).strip().title()
+        return t1, t2
+
     match = re.search(r"([A-Za-z ]+?)\s+vs\.?\s+([A-Za-z ]+?)(?:,|\?|$|tonight|today|game|with|starting|\s*$)", text, re.IGNORECASE)
     if match:
         t1 = match.group(1).strip().title()
