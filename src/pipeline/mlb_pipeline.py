@@ -4,7 +4,8 @@ from src.embeddings.embed_and_store import embed_and_store
 
 
 def ingest_mlb(start_date=None, end_date=None):
-    return run_feed_ingestion(start_date=start_date, end_date=end_date)
+    docs, summaries = run_feed_ingestion(start_date=start_date, end_date=end_date)
+    return docs, summaries
 
 
 def store_embeddings(documents):
@@ -18,6 +19,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("Starting MLB pipeline...")
-    docs = ingest_mlb(start_date=args.start_date, end_date=args.end_date)
+    docs, summaries = ingest_mlb(start_date=args.start_date, end_date=args.end_date)
+    print(f"Ingested {len(docs)} plays and {len(summaries)} game summaries")
     store_embeddings(docs)
     print("Pipeline completed.")
