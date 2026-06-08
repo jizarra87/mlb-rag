@@ -3,7 +3,7 @@ Build a game-level feature table for ML training.
 
 Reads game_summaries from one or more seasons and produces a flat CSV
 with rolling team stats and starting pitcher ERA computed strictly from
-past games (no data leakage).
+past games (no data leakage). Rolling state resets at each season boundary.
 
 Outputs:
   data/features/features_{season}.csv   — per-season feature table
@@ -15,36 +15,36 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import os
 from collections import defaultdict
-from datetime import datetime
-
-import csv
 
 FEATURES_DIR = "data/features"
 
-WINDOW_TEAM = 10    # rolling window for team run avg and win %
-WINDOW_PITCHER = 5  # rolling window for pitcher ERA
+WINDOW_TEAM = 20    # rolling window for team run avg and win %
+WINDOW_PITCHER = 5  # rolling window for pitcher ERA (starts)
 
 
-def load_summaries(paths):
-    summaries = []
-    for path in paths:
-        with open(path) as f:
-            data = json.load(f)
-        completed = [g for g in data if g.get("winner") is not None]
-        summaries.extend(completed)
-        print(f"Loaded {len(completed)} completed games from {path}")
-    summaries.sort(key=lambda g: g["date"])
-    return summaries
+def load_summaries(path):
+    with open(path) as f:
+        data = json.load(f)
+    completed = [g for g in data if g.get("winner") is not None]
+    completed.sort(key=lambda g: g["date"])
+    print(f"Loaded {len(completed)} completed games from {path}")
+    return completed
 
 
 def build_features(summaries):
-    # Rolling state tracked per team and pitcher — only past games
-    team_wins = defaultdict(list)       # team -> [1/0, ...] per game in order
-    team_runs = defaultdict(list)       # team -> [runs_scored, ...]
-    pitcher_era_data = defaultdict(list) # pitcher -> [(ip_approx, earned_runs), ...]
+    """
+    Compute rolling features with no data leakage: each row's features
+    are derived only from games that happened before it.
+    Rolling state is isolated to this call — no cross-season bleed.
+    """
+    team_wins = defaultdict(list)
+    team_runs = defaultdict(list)
+    # pitcher: list of runs allowed per start (not multiplied by 9)
+    pitcher_runs = defaultdict(list)
 
     rows = []
 
@@ -56,77 +56,76 @@ def build_features(summaries):
         home_starter = game.get("home_starter") or "Unknown"
         away_starter = game.get("away_starter") or "Unknown"
 
-        # --- compute features from PAST games only ---
-        home_win_pct = _win_pct(team_wins[home])
-        away_win_pct = _win_pct(team_wins[away])
-
-        home_avg_runs = _rolling_avg(team_runs[home], WINDOW_TEAM)
-        away_avg_runs = _rolling_avg(team_runs[away], WINDOW_TEAM)
-
-        home_starter_era = _pitcher_era(pitcher_era_data[home_starter])
-        away_starter_era = _pitcher_era(pitcher_era_data[away_starter])
-
-        home_games_played = len(team_wins[home])
-        away_games_played = len(team_wins[away])
+        # --- features from past games only ---
+        home_win_pct   = _win_pct(team_wins[home])
+        away_win_pct   = _win_pct(team_wins[away])
+        home_avg_runs  = _rolling_avg(team_runs[home],  WINDOW_TEAM, default=4.5)
+        away_avg_runs  = _rolling_avg(team_runs[away],  WINDOW_TEAM, default=4.5)
+        home_era       = _rolling_era(pitcher_runs[home_starter])
+        away_era       = _rolling_era(pitcher_runs[away_starter])
 
         target = 1 if game["winner"] == home else 0
 
         rows.append({
-            "game_pk": game["game_pk"],
-            "date": game["date"],
-            "venue": game["venue"],
-            "home_team": home,
-            "away_team": away,
-            "home_starter": home_starter,
-            "away_starter": away_starter,
-            "home_win_pct": round(home_win_pct, 4),
-            "away_win_pct": round(away_win_pct, 4),
-            "win_pct_diff": round(home_win_pct - away_win_pct, 4),
-            "home_avg_runs": round(home_avg_runs, 4),
-            "away_avg_runs": round(away_avg_runs, 4),
-            "avg_runs_diff": round(home_avg_runs - away_avg_runs, 4),
-            "home_starter_era": round(home_starter_era, 4),
-            "away_starter_era": round(away_starter_era, 4),
-            "era_diff": round(home_starter_era - away_starter_era, 4),
-            "home_games_played": home_games_played,
-            "away_games_played": away_games_played,
-            "target": target,
+            "game_pk":          game["game_pk"],
+            "date":             game["date"],
+            "venue":            game["venue"],
+            "home_team":        home,
+            "away_team":        away,
+            "home_starter":     home_starter,
+            "away_starter":     away_starter,
+            "home_win_pct":     round(home_win_pct, 4),
+            "away_win_pct":     round(away_win_pct, 4),
+            "win_pct_diff":     round(home_win_pct - away_win_pct, 4),
+            "home_avg_runs":    round(home_avg_runs, 4),
+            "away_avg_runs":    round(away_avg_runs, 4),
+            "avg_runs_diff":    round(home_avg_runs - away_avg_runs, 4),
+            "home_era":         round(home_era, 4),
+            "away_era":         round(away_era, 4),
+            "era_diff":         round(home_era - away_era, 4),
+            # Confidence proxies: how many games in the rolling window
+            "target":           target,
         })
 
-        # --- update rolling state AFTER computing features ---
+        # --- update state AFTER writing this row ---
         home_won = 1 if game["winner"] == home else 0
         team_wins[home].append(home_won)
         team_wins[away].append(1 - home_won)
         team_runs[home].append(home_score)
         team_runs[away].append(away_score)
-
-        # Approximate innings pitched: assume ~27 outs per 9 innings,
-        # each at-bat ~= 1 out faced. We use game runs allowed as ERA proxy.
-        pitcher_era_data[home_starter].append(away_score)  # runs allowed by home starter
-        pitcher_era_data[away_starter].append(home_score)
+        # runs allowed = opponent's score
+        pitcher_runs[home_starter].append(away_score)
+        pitcher_runs[away_starter].append(home_score)
 
     return rows
 
 
 def _win_pct(results):
     if not results:
-        return 0.5  # neutral prior for first game
+        return 0.5
     window = results[-WINDOW_TEAM:]
     return sum(window) / len(window)
 
 
-def _rolling_avg(values, window):
+def _rolling_avg(values, window, default=4.5):
     if not values:
-        return 4.5  # MLB average runs per game
-    return sum(values[-window:]) / len(values[-window:])
+        return default
+    w = values[-window:]
+    return sum(w) / len(w)
 
 
-def _pitcher_era(runs_allowed_list):
-    if not runs_allowed_list:
-        return 4.50  # league average ERA prior
-    window = runs_allowed_list[-WINDOW_PITCHER:]
-    # Approximate: ERA = (runs_allowed / games) * 9
-    return (sum(window) / len(window)) * 9
+def _rolling_era(runs_per_start):
+    """
+    ERA proxy: average runs allowed per start × 9 ÷ estimated innings.
+    Assumes a starter averages ~5.5 innings per outing (MLB average).
+    Returns a value on a realistic ERA scale (2–6 typical range).
+    """
+    if not runs_per_start:
+        return 4.50  # league average prior
+    window = runs_per_start[-WINDOW_PITCHER:]
+    avg_runs = sum(window) / len(window)
+    assumed_ip = 5.5
+    return (avg_runs / assumed_ip) * 9
 
 
 def save_csv(rows, path):
@@ -149,29 +148,35 @@ def run(seasons):
         2026: "data/game_summaries.json",
     }
 
-    all_rows = []
-
     for season in seasons:
         path = season_paths.get(season)
         if not path or not os.path.exists(path):
-            print(f"No summaries file found for season {season}, skipping")
+            print(f"No summaries file for season {season}, skipping")
             continue
-
-        summaries = load_summaries([path])
+        summaries = load_summaries(path)
         rows = build_features(summaries)
         save_csv(rows, f"{FEATURES_DIR}/features_{season}.csv")
-        all_rows.extend(rows)
 
     if len(seasons) > 1:
-        # Combined: re-build in strict date order across seasons
-        all_summaries = load_summaries([season_paths[s] for s in seasons if os.path.exists(season_paths.get(s, ""))])
-        combined_rows = build_features(all_summaries)
-        save_csv(combined_rows, f"{FEATURES_DIR}/features_all.csv")
+        # Combined across seasons — state resets at each season boundary
+        # to avoid 2025 momentum bleeding into 2026 early games
+        all_rows = []
+        for season in seasons:
+            path = season_paths.get(season)
+            if path and os.path.exists(path):
+                summaries = load_summaries(path)
+                all_rows.extend(build_features(summaries))
+        all_rows.sort(key=lambda r: r["date"])
+        save_csv(all_rows, f"{FEATURES_DIR}/features_all.csv")
 
-    print("\nSample row:")
-    if all_rows:
-        for k, v in list(all_rows[10].items()):
-            print(f"  {k}: {v}")
+    print("\nSample row (game 10):")
+    sample_path = f"{FEATURES_DIR}/features_{seasons[0]}.csv"
+    if os.path.exists(sample_path):
+        with open(sample_path) as f:
+            rows = list(csv.DictReader(f))
+        if len(rows) > 10:
+            for k, v in rows[10].items():
+                print(f"  {k:25s} {v}")
 
 
 if __name__ == "__main__":

@@ -32,11 +32,9 @@ FEATURE_COLS = [
     "home_avg_runs",
     "away_avg_runs",
     "avg_runs_diff",
-    "home_starter_era",
-    "away_starter_era",
+    "home_era",
+    "away_era",
     "era_diff",
-    "home_games_played",
-    "away_games_played",
 ]
 
 SPLIT_DATE = "2026-01-01"  # train = before, test = on or after
@@ -100,10 +98,11 @@ def run(features_path):
 
     # Main model
     gb = GradientBoostingClassifier(
-        n_estimators=200,
+        n_estimators=100,
         learning_rate=0.05,
-        max_depth=3,
+        max_depth=2,
         subsample=0.8,
+        min_samples_leaf=20,
         random_state=42,
     )
     gb.fit(X_train, y_train)
