@@ -103,7 +103,7 @@ def extract_plays(feed_data, game_pk):
 def run_feed_ingestion():
     print("Fetching games...")
 
-    game_pks = get_schedule("2026-04-17", "2026-04-18")
+    game_pks = get_schedule("2026-03-20", "2026-04-24")
 
     print(f"Games found: {len(game_pks)}")
 
@@ -138,23 +138,11 @@ def run_feed_ingestion():
                 
             plays = extract_plays(feed, game_pk)
             all_docs.extend(plays)
-            # checkpoint + save
             if len(all_docs) % SAVE_EVERY < len(plays):
                 elapsed = time.time() - start_time
-
-                print(f"""
-            Checkpoint reached
-            Total plays: {len(all_docs)}
-            Elapsed: {round(elapsed, 2)} sec
-            Errors so far: {errors}
-            """)
-
+                print(f"Checkpoint: {len(all_docs)} plays | {round(elapsed, 2)}s | errors: {errors}")
                 with open(output_file, "w") as f:
                     json.dump(all_docs, f)
-
-                print(f"Saved checkpoint: {len(all_docs)} plays")
-            if len(all_docs) % SAVE_EVERY < len(plays):
-                print(f"Checkpoint: {len(all_docs)} plays processed")
             if i%20 == 0 and i!=0:
                 elapsed = time.time() - start_time
                 print(f"""
