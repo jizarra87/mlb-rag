@@ -72,7 +72,7 @@ def generate_answer(question):
 
             ptype = detect_player_type(events, player)
             if ptype == "batter":
-                stats = stats = compute_game_stats(events, full_game_events, player)
+                stats = compute_game_stats(events, full_game_events, player)
             else:
                 stats = compute_pitcher_stats(events, full_game_events, player)
             
@@ -88,7 +88,13 @@ def generate_answer(question):
             Game stats:
             {stats}
             """
-    match = re.search(r"(.+?)\s+vs\s+(.+)", question, re.IGNORECASE)        
+    # Require both sides to look like player names (First Last) to avoid
+    # matching general questions that contain "vs" (e.g. "ERA vs lefties").
+    match = re.search(
+        r"^([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+vs\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)$",
+        question.strip(),
+        re.IGNORECASE,
+    )
     if match:
         batter = match.group(1).strip().title()
         pitcher = match.group(2).strip().title()
@@ -110,7 +116,6 @@ def generate_answer(question):
     
     if "how many" in question.lower() or "stats" in question.lower():
         player = extract_player_name_llm(question)
-        print(player)
         events = get_all_events_for_player(player)  
         
         event_list = [e.payload["event"] for e in events]
@@ -130,7 +135,6 @@ def generate_answer(question):
         print("No documents found.")
         return "No data available for this query."
 
-    print(docs[0].payload)
     for d in docs:
         context += d.payload.get("text", "") + "\n"
 
@@ -259,27 +263,26 @@ def name_match(player, batter):
 
 
 def get_latest_game_by_player(player):
-    points = []
-    offset = None
+    # Fetch only events where the player appears as batter or pitcher.
+    # We query both fields separately and merge, because Qdrant filter "should"
+    # (OR) requires at least one condition to match — this avoids a full collection scan.
+    batter_res = client.scroll(
+        collection_name="mlb_articles",
+        scroll_filter={
+            "should": [
+                {"key": "batter", "match": {"value": player}},
+                {"key": "pitcher", "match": {"value": player}},
+            ]
+        },
+        limit=5000,
+    )[0]
 
-    while True:
-        res, offset = client.scroll(
-            collection_name="mlb_articles",
-            limit=1000,
-            offset=offset
-        )
-
-        points.extend(res)
-
-        if offset is None:
-            break
-
-    # 👉 filtrar SOLO eventos del jugador
+    # Fuzzy-match in case the stored name differs slightly (accents, suffixes)
     filtered = [
-    p for p in points
-    if name_match(player, p.payload.get("batter", ""))
-        or name_match(player, p.payload.get("pitcher",""))
-        ]
+        p for p in batter_res
+        if name_match(player, p.payload.get("batter", ""))
+        or name_match(player, p.payload.get("pitcher", ""))
+    ]
 
     if not filtered:
         return None, None, []
@@ -375,11 +378,10 @@ Rules:
 - If no player found, return: NONE
 """
     response = llm.complete(prompt)
-    if response.text == "NONE":
+    name = response.text.strip()
+    if name == "NONE":
         return None
-
-
-    return response.text
+    return name
 
 
 def extract_player_name(question):

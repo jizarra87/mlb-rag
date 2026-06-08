@@ -25,11 +25,16 @@ services:
       dockerfile: Dockerfile.airflow
     depends_on:
       - postgres
+      - qdrant
+    env_file:
+      - .env.dev
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow/src
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -48,7 +53,10 @@ services:
       - "8000:8000"
     depends_on:
       - qdrant
+    env_file:
+      - .env.dev
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
     volumes:
       - .:/app

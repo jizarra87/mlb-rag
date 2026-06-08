@@ -1,48 +1,43 @@
 MLB RAG Analytics Engine
 
-A production-style Retrieval-Augmented Generation (RAG) system designed to transform raw MLB data into contextual, queryable insights using LLMs.
+A Retrieval-Augmented Generation (RAG) project for turning MLB play-by-play data into queryable baseball insights with OpenAI models and Qdrant.
 
 Overview
 
-This project simulates a real-world analytics product where users can ask natural language questions about MLB games and receive grounded, data-backed answers.
+This repository currently ingests MLB Stats API data, extracts play-level events, embeds them, stores them in Qdrant, and serves answers through a FastAPI app.
 
-Instead of treating AI as a standalone tool, this system integrates data engineering, modeling, and LLM capabilities into a scalable pipeline.
+Instead of treating AI as a standalone tool, the project combines ingestion, embedding, retrieval, and LLM generation into a single baseball-focused workflow.
 
 Key Features
-End-to-end data pipeline (ingestion → processing → embeddings)
-Vector search using a dedicated vector database
-Natural language querying over structured + unstructured data
-Grounded responses (no hallucinations)
-Modular and scalable architecture
-Orchestrated with Airflow and containerized with Docker
-CI/CD-ready project structure
+- MLB Stats API schedule and live-feed ingestion
+- Play-level event extraction for batters, pitchers, teams, and games
+- OpenAI embeddings stored in Qdrant
+- FastAPI endpoint for question answering
+- Docker-based local environment
+- Modular structure for ingestion, embedding, and retrieval logic
+
 Architecture
-Data Ingestion: MLB API → raw JSON data
-Processing Layer: Document creation and chunking
-Embedding Layer: OpenAI embeddings stored in vector DB
-Retrieval Layer: Similarity search (top-K relevant documents)
-LLM Layer: Context-aware response generation
-Orchestration: Airflow DAGs
-Infrastructure: Docker-based environment
+- Data Ingestion: MLB Stats API schedule plus live game feeds
+- Document Layer: Play-by-play event extraction
+- Embedding Layer: OpenAI embeddings stored in Qdrant
+- Retrieval Layer: Vector search plus custom player and matchup lookups
+- LLM Layer: Context-aware answer generation
+- Infrastructure: Docker-based local services
+
 Tech Stack
-Python
-SQL
-Airflow
-Docker
-Vector DB (Qdrant / Pinecone)
-LLMs (OpenAI)
-GitHub (CI/CD ready)
-📈 Why This Matters
+- Python
+- Docker
+- Qdrant
+- FastAPI
+- OpenAI
 
-This project reflects how modern data systems evolve beyond dashboards into intelligent, queryable platforms. It combines data engineering fundamentals with AI to enable faster, more intuitive decision-making.
+Current Repository Notes
+- The current pipeline entrypoint is `src/pipeline/mlb_pipeline.py`.
+- The repository includes an Airflow service in `docker-compose.yml`, but the current `main` branch does not include a project DAG under `dags/`.
+- The indexed corpus is built from MLB play-level events rather than season-level summary documents.
 
-What I Focused On
-Designing a system, not just a prototype
-Clean, modular pipeline structure
-Scalability and production readiness
-Bridging data engineering with AI-driven analytics
-🔗 Next Steps
-Add real-time ingestion
-Improve ranking and retrieval strategies
-Introduce evaluation metrics for RAG quality
-Expand to multi-domain datasets
+Next Steps
+- Make ingestion windows configurable instead of hardcoded
+- Improve ranking and retrieval strategies
+- Add evaluation metrics for RAG quality
+- Add stronger operational safeguards around index refreshes
