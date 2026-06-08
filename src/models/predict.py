@@ -184,8 +184,11 @@ def predict(home_team, away_team, home_starter=None, away_starter=None):
     feature_cols = bundle["features"]
 
     X = build_feature_vector(home_team, away_team, home_starter, away_starter, feature_cols)
+    import logging
+    logging.getLogger(__name__).info(f"FEATURES {home_team} vs {away_team}: {dict(zip(feature_cols, X[0]))}")
     X_scaled = scaler.transform(X)
     probs = model.predict_proba(X_scaled)[0]
+    logging.getLogger(__name__).info(f"PROBS: home={probs[1]:.4f} away={probs[0]:.4f}")
 
     home_prob = probs[1]
     away_prob = probs[0]
