@@ -44,100 +44,89 @@ def load_lookup(path):
 
 
 def build_features(summaries, pitcher_lookup, team_lookup):
-    team_wins = defaultdict(list)
-    team_runs = defaultdict(list)
+    team_wins       = defaultdict(list)
+    team_runs_scored = defaultdict(list)
+    team_runs_allowed = defaultdict(list)
     rows = []
 
     for game in summaries:
-        home          = game["home_team"]
-        away          = game["away_team"]
-        home_score    = game["home_score"]
-        away_score    = game["away_score"]
-        home_starter  = game.get("home_starter") or "Unknown"
-        away_starter  = game.get("away_starter") or "Unknown"
-        game_pk       = str(game["game_pk"])
+        home         = game["home_team"]
+        away         = game["away_team"]
+        home_score   = game["home_score"]
+        away_score   = game["away_score"]
+        home_starter = game.get("home_starter") or "Unknown"
+        away_starter = game.get("away_starter") or "Unknown"
+        game_pk      = str(game["game_pk"])
 
-        # --- rolling win% and run avg (season-isolated) ---
-        home_win_pct  = _win_pct(team_wins[home])
-        away_win_pct  = _win_pct(team_wins[away])
-        home_avg_runs = _rolling_avg(team_runs[home], WINDOW_TEAM, default=4.5)
-        away_avg_runs = _rolling_avg(team_runs[away], WINDOW_TEAM, default=4.5)
+        # --- Pythagorean win expectation (more predictive than raw win%) ---
+        home_pyth = _pythagorean(team_runs_scored[home], team_runs_allowed[home])
+        away_pyth = _pythagorean(team_runs_scored[away], team_runs_allowed[away])
 
-        # --- pitcher stats from plays ---
+        # --- pitcher stats from plays (diff only) ---
         p_stats = pitcher_lookup.get(game_pk, {})
-        home_p = p_stats.get(home_starter, _default_pitcher())
-        away_p = p_stats.get(away_starter, _default_pitcher())
+        home_p  = p_stats.get(home_starter, _default_pitcher())
+        away_p  = p_stats.get(away_starter, _default_pitcher())
 
-        # --- team offensive stats from plays ---
+        # --- team offensive stats from plays (diff only) ---
         t_stats = team_lookup.get(game_pk, {})
-        home_t = t_stats.get(home, _default_team())
-        away_t = t_stats.get(away, _default_team())
+        home_t  = t_stats.get(home, _default_team())
+        away_t  = t_stats.get(away, _default_team())
 
         target = 1 if game["winner"] == home else 0
 
         rows.append({
-            "game_pk":          game["game_pk"],
-            "date":             game["date"],
-            "venue":            game["venue"],
-            "home_team":        home,
-            "away_team":        away,
-            "home_starter":     home_starter,
-            "away_starter":     away_starter,
-            # rolling win%
-            "home_win_pct":     round(home_win_pct, 4),
-            "away_win_pct":     round(away_win_pct, 4),
-            "win_pct_diff":     round(home_win_pct - away_win_pct, 4),
-            # rolling runs (simple)
-            "home_avg_runs":    round(home_avg_runs, 4),
-            "away_avg_runs":    round(away_avg_runs, 4),
-            "avg_runs_diff":    round(home_avg_runs - away_avg_runs, 4),
-            # pitcher stats (from plays)
-            "home_era":         home_p["era"],
-            "away_era":         away_p["era"],
-            "era_diff":         round(home_p["era"] - away_p["era"], 4),
-            "home_k9":          home_p["k9"],
-            "away_k9":          away_p["k9"],
-            "home_bb9":         home_p["bb9"],
-            "away_bb9":         away_p["bb9"],
-            "home_whip":        home_p["whip"],
-            "away_whip":        away_p["whip"],
-            "whip_diff":        round(home_p["whip"] - away_p["whip"], 4),
-            # team offensive stats (from plays)
-            "home_ops":         home_t["ops"],
-            "away_ops":         away_t["ops"],
-            "ops_diff":         round(home_t["ops"] - away_t["ops"], 4),
-            "home_obp":         home_t["obp"],
-            "away_obp":         away_t["obp"],
-            "home_slg":         home_t["slg"],
-            "away_slg":         away_t["slg"],
-            "home_runs_pg":     home_t["runs_per_game"],
-            "away_runs_pg":     away_t["runs_per_game"],
-            "runs_pg_diff":     round(home_t["runs_per_game"] - away_t["runs_per_game"], 4),
-            "target":           target,
+            "game_pk":      game["game_pk"],
+            "date":         game["date"],
+            "venue":        game["venue"],
+            "home_team":    home,
+            "away_team":    away,
+            "home_starter": home_starter,
+            "away_starter": away_starter,
+            # Pythagorean win expectation
+            "home_pyth":    round(home_pyth, 4),
+            "away_pyth":    round(away_pyth, 4),
+            "pyth_diff":    round(home_pyth - away_pyth, 4),
+            # pitcher matchup diffs
+            "era_diff":     round(home_p["era"]  - away_p["era"],  4),
+            "k9_diff":      round(home_p["k9"]   - away_p["k9"],   4),
+            "bb9_diff":     round(home_p["bb9"]  - away_p["bb9"],  4),
+            "whip_diff":    round(home_p["whip"] - away_p["whip"], 4),
+            # team offense diffs
+            "ops_diff":     round(home_t["ops"]           - away_t["ops"],           4),
+            "obp_diff":     round(home_t["obp"]           - away_t["obp"],           4),
+            "slg_diff":     round(home_t["slg"]           - away_t["slg"],           4),
+            "runs_pg_diff": round(home_t["runs_per_game"] - away_t["runs_per_game"], 4),
+            "target":       target,
         })
 
         # update rolling state AFTER writing the row
         home_won = 1 if game["winner"] == home else 0
         team_wins[home].append(home_won)
         team_wins[away].append(1 - home_won)
-        team_runs[home].append(home_score)
-        team_runs[away].append(away_score)
+        team_runs_scored[home].append(home_score)
+        team_runs_scored[away].append(away_score)
+        team_runs_allowed[home].append(away_score)
+        team_runs_allowed[away].append(home_score)
 
     return rows
 
 
-def _win_pct(results):
-    if not results:
+def _pythagorean(runs_scored, runs_allowed, exp=1.83):
+    """
+    Pythagorean win expectation: RS^exp / (RS^exp + RA^exp).
+    Uses last WINDOW_TEAM games. Returns 0.5 (neutral) with no prior data.
+    """
+    rs = runs_scored[-WINDOW_TEAM:]
+    ra = runs_allowed[-WINDOW_TEAM:]
+    if not rs:
         return 0.5
-    window = results[-WINDOW_TEAM:]
-    return sum(window) / len(window)
-
-
-def _rolling_avg(values, window, default=4.5):
-    if not values:
-        return default
-    w = values[-window:]
-    return sum(w) / len(w)
+    total_rs = sum(rs)
+    total_ra = sum(ra)
+    if total_rs + total_ra == 0:
+        return 0.5
+    rs_exp = total_rs ** exp
+    ra_exp = total_ra ** exp
+    return rs_exp / (rs_exp + ra_exp)
 
 
 def _default_pitcher():
