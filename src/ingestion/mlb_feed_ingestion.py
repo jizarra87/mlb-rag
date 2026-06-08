@@ -100,10 +100,14 @@ def extract_plays(feed_data, game_pk):
     return plays
 
 
-def run_feed_ingestion():
-    print("Fetching games...")
+def run_feed_ingestion(start_date=None, end_date=None):
+    from datetime import date
+    start_date = start_date or os.getenv("INGEST_START_DATE", "2026-03-20")
+    end_date = end_date or os.getenv("INGEST_END_DATE", date.today().strftime("%Y-%m-%d"))
 
-    game_pks = get_schedule("2026-03-20", "2026-04-24")
+    print(f"Fetching games from {start_date} to {end_date}...")
+
+    game_pks = get_schedule(start_date, end_date)
 
     print(f"Games found: {len(game_pks)}")
 
