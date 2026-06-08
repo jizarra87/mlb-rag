@@ -66,25 +66,22 @@ def is_prediction_question(text: str) -> bool:
 
 def extract_teams_from_message(text: str):
     """
-    Try to extract two team names from patterns like:
+    Extract two team names from patterns like:
       'Yankees vs Red Sox'
       'Who wins Dodgers vs Astros tonight?'
       'Will the Cubs beat the Cardinals?'
     Returns (team1, team2) or (None, None).
     """
-    # Pattern: <something> vs <something>
-    match = re.search(r"([A-Za-z ]+?)\s+vs\.?\s+([A-Za-z ]+?)(?:\?|$|tonight|today|game|\s*$)", text, re.IGNORECASE)
+    match = re.search(r"([A-Za-z ]+?)\s+vs\.?\s+([A-Za-z ]+?)(?:,|\?|$|tonight|today|game|with|starting|\s*$)", text, re.IGNORECASE)
     if match:
         t1 = match.group(1).strip().title()
         t2 = match.group(2).strip().title()
-        # Remove common filler words
         for word in ["The ", "Will ", "Who Wins "]:
             t1 = t1.replace(word, "")
             t2 = t2.replace(word, "")
         return t1.strip(), t2.strip()
 
-    # Pattern: <team> beat <team>
-    match = re.search(r"([A-Za-z ]+?)\s+beat\s+([A-Za-z ]+?)(?:\?|$)", text, re.IGNORECASE)
+    match = re.search(r"([A-Za-z ]+?)\s+beat\s+([A-Za-z ]+?)(?:,|\?|$)", text, re.IGNORECASE)
     if match:
         t1 = match.group(1).strip().title()
         t2 = match.group(2).strip().title()
@@ -96,15 +93,56 @@ def extract_teams_from_message(text: str):
     return None, None
 
 
+def extract_starters_from_message(text: str):
+    """
+    Extract starting pitcher names from patterns like:
+      'Yankees vs Red Sox, Cole vs Bello'
+      'Yankees with Cole vs Red Sox with Bello'
+      'Yankees vs Red Sox starting Cole and Bello'
+    Returns (home_starter, away_starter) or (None, None).
+    """
+    # Pattern: "Team1 with Pitcher1 vs Team2 with Pitcher2"
+    match = re.search(
+        r"with\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+vs.+with\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)",
+        text, re.IGNORECASE
+    )
+    if match:
+        return match.group(1).strip().title(), match.group(2).strip().title()
+
+    # Pattern: after comma "Cole vs Bello" or "Cole and Bello"
+    match = re.search(
+        r",\s*([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+(?:vs\.?|and)\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)",
+        text, re.IGNORECASE
+    )
+    if match:
+        return match.group(1).strip().title(), match.group(2).strip().title()
+
+    # Pattern: "starting Cole and Bello" or "starting Cole vs Bello"
+    match = re.search(
+        r"starting\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+(?:vs\.?|and)\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)",
+        text, re.IGNORECASE
+    )
+    if match:
+        return match.group(1).strip().title(), match.group(2).strip().title()
+
+    return None, None
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚾ MLB Analytics Bot\n\n"
-        "Ask me anything about baseball:\n"
-        "• Win predictions: \"Who wins Yankees vs Red Sox?\"\n"
-        "• Player stats: \"How many HRs does Aaron Judge have?\"\n"
-        "• Game recaps: \"What happened in Judge's last game?\"\n"
-        "• Matchups: \"Aaron Judge vs Gerrit Cole\"\n\n"
-        "Powered by RAG + ML prediction model."
+        "Ask me anything about baseball:\n\n"
+        "*Predictions (team vs team):*\n"
+        "• Who wins Yankees vs Red Sox?\n"
+        "• Will the Dodgers beat the Astros?\n"
+        "• Yankees vs Red Sox, Cole vs Bello\n"
+        "• Yankees with Gerrit Cole vs Red Sox with Brayan Bello\n\n"
+        "*Player questions:*\n"
+        "• How many HRs does Aaron Judge have?\n"
+        "• What happened in Judge's last game?\n"
+        "• Luis Arraez vs Gerrit Cole\n\n"
+        "Powered by RAG + ML prediction model.",
+        parse_mode="Markdown"
     )
 
 
@@ -120,16 +158,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             home_team, away_team = extract_teams_from_message(text)
 
             if home_team and away_team:
-                result = predict(home_team=home_team, away_team=away_team)
+                home_starter, away_starter = extract_starters_from_message(text)
+                result = predict(
+                    home_team=home_team,
+                    away_team=away_team,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                )
                 home_prob = result["home_prob"] * 100
                 away_prob = result["away_prob"] * 100
                 winner = home_team if result["home_prob"] > result["away_prob"] else away_team
                 conf = max(home_prob, away_prob)
 
+                starters_line = ""
+                if home_starter and away_starter:
+                    starters_line = f"🔥 Starters: {home_starter} vs {away_starter}\n"
+                elif home_starter:
+                    starters_line = f"🔥 Home starter: {home_starter}\n"
+                elif away_starter:
+                    starters_line = f"🔥 Away starter: {away_starter}\n"
+
                 response = (
                     f"⚾ *Win Probability*\n\n"
                     f"🏠 {home_team} (home): *{home_prob:.1f}%*\n"
-                    f"✈️ {away_team} (away): *{away_prob:.1f}%*\n\n"
+                    f"✈️ {away_team} (away): *{away_prob:.1f}%*\n"
+                    f"{starters_line}\n"
                     f"📊 Predicted winner: *{winner}* ({conf:.1f}% confidence)\n\n"
                     f"_Based on Pythagorean win expectation, pitcher K/9, WHIP, and team OPS._"
                 )
