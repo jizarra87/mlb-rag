@@ -122,10 +122,10 @@ def run(features_path):
     home_win_rate = sum(y_test) / len(y_test)
     print(f"\nNaive baseline (always predict home win): {home_win_rate:.3f}")
 
-    # Save best model + scaler
+    # Save LR as deployed model — generalizes better than GB across seasons
     model_path = f"{MODELS_DIR}/model.pkl"
     with open(model_path, "wb") as f:
-        pickle.dump({"model": gb, "scaler": scaler, "features": FEATURE_COLS}, f)
+        pickle.dump({"model": lr, "scaler": scaler, "features": FEATURE_COLS}, f)
     print(f"\nModel saved → {model_path}")
 
 
