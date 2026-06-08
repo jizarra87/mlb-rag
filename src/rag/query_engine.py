@@ -88,11 +88,11 @@ def generate_answer(question):
             Game stats:
             {stats}
             """
-    # Require both sides to look like player names (First Last) to avoid
-    # matching general questions that contain "vs" (e.g. "ERA vs lefties").
+    # Match "First Last vs First Last" anywhere in the message.
+    # Both sides must look like player names to avoid matching "ERA vs lefties".
     match = re.search(
-        r"^([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)\s+vs\s+([A-Z][a-z]+ [A-Z][a-zA-Z\-']+)$",
-        question.strip(),
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-zA-Z\-']+)+)\s+vs\.?\s+([A-Z][a-z]+(?:\s+[A-Z][a-zA-Z\-']+)+)",
+        question,
         re.IGNORECASE,
     )
     if match:
