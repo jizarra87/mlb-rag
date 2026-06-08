@@ -74,12 +74,15 @@ def extract_teams_from_message(text: str):
       'Will the Cubs beat the Cardinals?'
     Returns (team1, team2) or (None, None).
     """
-    # "Team with Pitcher vs Team with Pitcher" — extract teams only
-    match = re.search(r"([A-Za-z ]+?)\s+with\s+\S+\s+vs\.?\s+([A-Za-z ]+?)\s+with\s+", text, re.IGNORECASE)
-    if match:
-        t1 = match.group(1).strip().title()
-        t2 = match.group(2).strip().title()
-        return t1, t2
+    # "Team with Pitcher vs Team with Pitcher" — split on " with " to isolate teams
+    if re.search(r'\bwith\b', text, re.IGNORECASE):
+        parts = re.split(r'\s+with\s+', text, flags=re.IGNORECASE)
+        # parts[0]="...Team1", parts[1]="Pitcher1 vs Team2", parts[2]="Pitcher2..."
+        if len(parts) >= 3:
+            t1_match = re.search(r'([A-Za-z]+(?:\s+[A-Za-z]+)*)$', parts[0].strip())
+            t2_match = re.search(r'vs\.?\s+([A-Za-z]+(?:\s+[A-Za-z]+)*)$', parts[1].strip(), re.IGNORECASE)
+            if t1_match and t2_match:
+                return t1_match.group(1).strip().title(), t2_match.group(1).strip().title()
 
     match = re.search(r"([A-Za-z ]+?)\s+vs\.?\s+([A-Za-z ]+?)(?:,|\?|$|tonight|today|game|with|starting|\s*$)", text, re.IGNORECASE)
     if match:
@@ -110,8 +113,8 @@ def extract_starters_from_message(text: str):
       'Yankees vs Red Sox starting Cole and Bello'
     Returns (home_starter, away_starter) or (None, None).
     """
-    # Pitcher name pattern: accepts "Gerrit Cole", "C.Cole", "C Cole", "Cole"
-    NAME = r"([A-Z][a-zA-Z]*\.?\s+[A-Z][a-zA-Z\-']+)"
+    # Pitcher name pattern: accepts "Gerrit Cole", "C.Cole", "C.Early", "I.Seymour"
+    NAME = r"([A-Z][a-zA-Z]*\.?\s*[A-Z][a-zA-Z\-']+)"
 
     # "Team with Pitcher vs Team with Pitcher"
     match = re.search(rf"with\s+{NAME}\s+vs.+with\s+{NAME}", text, re.IGNORECASE)
