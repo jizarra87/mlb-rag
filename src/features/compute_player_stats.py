@@ -18,6 +18,8 @@ from collections import defaultdict
 FEATURES_DIR = "data/features"
 
 PLAYS_FILES = [
+    "data/historical/plays_2023.json",
+    "data/historical/plays_2024.json",
     "data/historical/plays_2025.json",
     "data/full_ingestion.json",
 ]

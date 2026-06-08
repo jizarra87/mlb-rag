@@ -167,6 +167,8 @@ def run(seasons):
     team_lookup    = load_lookup(f"{FEATURES_DIR}/team_stats.json")
 
     season_paths = {
+        2023: "data/historical/game_summaries_2023.json",
+        2024: "data/historical/game_summaries_2024.json",
         2025: "data/historical/game_summaries_2025.json",
         2026: "data/game_summaries.json",
     }

@@ -42,7 +42,7 @@ FEATURE_COLS = [
     "home_runs_pg", "away_runs_pg", "runs_pg_diff",
 ]
 
-SPLIT_DATE = "2026-01-01"  # train = before, test = on or after
+SPLIT_DATE = "2026-01-01"  # train = 2023+2024+2025, test = 2026
 
 
 def load_csv(path):
