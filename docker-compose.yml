@@ -44,6 +44,22 @@ services:
       - "8080:8080"
     command: standalone
 
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: mlb-bot
+    depends_on:
+      - qdrant
+    env_file:
+      - .env.dev
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
   api:
     build:
       context: .
