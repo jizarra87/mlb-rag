@@ -38,7 +38,7 @@ SPLIT_DATE = "2026-01-01"  # train = 2023+2024+2025, test = 2026
 
 
 def load_csv(path):
-    with open(path) as f:
+    with open(path, encoding="utf-8", errors="ignore") as f:
         return list(csv.DictReader(f))
 
 
