@@ -75,6 +75,13 @@ def ingest_yesterday(**context):
     context["ti"].xcom_push(key="new_plays",     value=len(added))
     context["ti"].xcom_push(key="new_summaries", value=len(new_s))
 
+    # Invalidate bot's in-memory plays cache
+    try:
+        from src.rag import query_engine
+        query_engine._plays_cache = None
+    except Exception:
+        pass
+
 
 def upsert_embeddings(**context):
     """Embed and upsert only the new plays into Qdrant — no full re-index."""

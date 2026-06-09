@@ -32,7 +32,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      PYTHONPATH: /opt/airflow/src
+      PYTHONPATH: /opt/airflow
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
     volumes:
