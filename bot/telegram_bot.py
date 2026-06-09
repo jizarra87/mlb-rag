@@ -86,27 +86,58 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _handle_last_game(player: str) -> str:
-    date, game_pk, events = get_latest_game_by_player(player)
-    if not events:
+    from src.rag.query_engine import _load_plays, name_match
+    plays = _load_plays()
+
+    matched = [
+        p for p in plays
+        if name_match(player, p.get("batter", ""))
+        or name_match(player, p.get("pitcher", ""))
+    ]
+    if not matched:
         return f"No recent game data found for *{player}*."
 
-    full_game_events = []
-    from src.rag.query_engine import client as qdrant_client
-    full_game_events = qdrant_client.scroll(
-        collection_name="mlb_articles",
-        scroll_filter={"must": [{"key": "game_pk", "match": {"value": game_pk}}]},
-        limit=5000,
-    )[0]
+    latest = max(matched, key=lambda p: p.get("date", ""))
+    latest_pk = latest["game_pk"]
+    latest_date = latest["date"]
 
-    ptype = detect_player_type(events, player)
-    stats = compute_game_stats(events, full_game_events, player) if ptype == "batter" \
-            else compute_pitcher_stats(events, full_game_events, player)
+    player_plays  = [p for p in matched        if p["game_pk"] == latest_pk]
+    full_game     = [p for p in plays           if p["game_pk"] == latest_pk]
 
-    date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
-    lines = [f"*{player} — Last Game ({date_str})*\n"]
-    for k, v in stats.items():
-        lines.append(f"  {k}: {v}")
-    return "\n".join(lines)
+    # Determine batter vs pitcher by majority role
+    as_batter  = [p for p in player_plays if name_match(player, p.get("batter",  ""))]
+    as_pitcher = [p for p in player_plays if name_match(player, p.get("pitcher", ""))]
+    is_batter  = len(as_batter) >= len(as_pitcher)
+
+    if is_batter:
+        events  = [p["event"] for p in as_batter]
+        hits    = sum(1 for e in events if e in ["Single", "Double", "Triple", "Home Run"])
+        hr      = events.count("Home Run")
+        doubles = events.count("Double")
+        triples = events.count("Triple")
+        bb      = events.count("Walk")
+        ab      = sum(1 for e in events if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
+        avg     = round(hits / ab, 3) if ab > 0 else 0.000
+        rbis    = sum(p.get("rbi", 0) for p in as_batter)
+        # Runs scored: check runners movements in full game
+        runs = sum(
+            1 for p in full_game
+            for r in (p.get("runners") or [])
+            if isinstance(r, dict)
+            and r.get("movement", {}).get("end") == "score"
+            and r.get("details", {}).get("runner", {}).get("fullName", "") == latest.get("batter", "")
+        )
+        stats_str = f"AB: {ab}  H: {hits}  2B: {doubles}  3B: {triples}  HR: {hr}  BB: {bb}  RBI: {rbis}  R: {runs}  AVG: {avg}"
+    else:
+        ip_outs  = len(as_pitcher)
+        er       = sum(p.get("runs_scored", 0) for p in as_pitcher)
+        ks       = sum(1 for p in as_pitcher if p.get("event") == "Strikeout")
+        bb_p     = sum(1 for p in as_pitcher if p.get("event") == "Walk")
+        hits_all = sum(1 for p in as_pitcher if p.get("event") in ["Single", "Double", "Triple", "Home Run"])
+        ip       = round(ip_outs / 3, 1)
+        stats_str = f"IP: {ip}  H: {hits_all}  ER: {er}  K: {ks}  BB: {bb_p}"
+
+    return f"*{player} — Last Game ({latest_date})*\n\n  {stats_str}"
 
 
 def _handle_season_stats(player: str) -> str:
