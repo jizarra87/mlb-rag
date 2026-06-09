@@ -44,6 +44,8 @@ For player_question, also set sub_intent:
   (keywords: "this season", "esta temporada", "how many", "cuantos", "batting average", "home runs")
 - vs_matchup: user asks about one player's historical record against another player
   (pattern: "Player A vs Player B", "A contra B")
+- roster_vs_pitcher: user asks how a whole team's roster performs against a specific pitcher
+  (pattern: "Dodgers roster vs Skenes", "how does the Yankees lineup do against Cole")
 
 Entity extraction rules:
 - Normalize team names to full MLB names (e.g. "Yankees" -> "New York Yankees", "cerveceros" -> "Milwaukee Brewers")
@@ -51,6 +53,7 @@ Entity extraction rules:
   (e.g. "J. Taillon" -> "Jameson Taillon", "G. Cole" -> "Gerrit Cole", "C. Sanchez" -> "Cristopher Sanchez")
   Remove accents (e.g. "Ronald Acuna" not "Ronald Acuña")
 - For vs_matchup, put batter in "player" and pitcher in "pitcher"
+- For roster_vs_pitcher, put the full team name in "home_team" and pitcher in "pitcher"
 - home_team is the first team mentioned, away_team is the second
 - Extract starting pitcher names if mentioned alongside a team
 - Extract a numeric line (e.g. 4.5) for f5_total if present
@@ -59,7 +62,7 @@ Entity extraction rules:
 Respond ONLY with valid JSON, no explanation. Schema:
 {
   "intent": "win_prediction" | "f5_total" | "player_question" | "general",
-  "sub_intent": "last_game" | "season_stats" | "vs_matchup" | null,
+  "sub_intent": "last_game" | "season_stats" | "vs_matchup" | "roster_vs_pitcher" | null,
   "home_team": "<full team name or null>",
   "away_team": "<full team name or null>",
   "home_starter": "<pitcher full name or null>",

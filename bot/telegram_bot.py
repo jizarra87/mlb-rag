@@ -61,7 +61,9 @@ HELP_TEXT = (
     "Ask about a player's stats or recent games:\n"
     "• `How many home runs does Ronald Acuña have?`\n"
     "• `What happened in Judge's last game?`\n"
-    "• `Luis Arraez vs Gerrit Cole`\n\n"
+    "• `Luis Arraez vs Gerrit Cole`\n"
+    "• `Dodgers roster stats vs Paul Skenes`\n"
+    "• `Como batea el lineup de los Yankees contra Gerrit Cole?`\n\n"
 
     "*General baseball questions*\n"
     "• `What is the DH rule?`\n"
@@ -138,6 +140,54 @@ def _handle_last_game(player: str) -> str:
         stats_str = f"IP: {ip}  H: {hits_all}  ER: {er}  K: {ks}  BB: {bb_p}"
 
     return f"*{player} — Last Game ({latest_date})*\n\n  {stats_str}"
+
+
+def _handle_roster_vs_pitcher(team: str, pitcher: str) -> str:
+    from src.rag.query_engine import _load_plays, name_match
+    from collections import defaultdict
+    plays = _load_plays()
+
+    pitcher_plays = [p for p in plays if name_match(pitcher, p.get("pitcher", ""))]
+    team_plays = [
+        p for p in pitcher_plays
+        if team.lower() in p.get("team", "").lower()
+        or team.lower() in p.get("home_team", "").lower()
+        or team.lower() in p.get("away_team", "").lower()
+    ]
+
+    if not team_plays:
+        return f"No data found for *{team}* batters vs *{pitcher}*."
+
+    stats = defaultdict(lambda: {"ab": 0, "h": 0, "hr": 0, "bb": 0, "rbi": 0})
+    for p in team_plays:
+        batter = p.get("batter", "Unknown")
+        event  = p.get("event", "")
+        if event not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"]:
+            stats[batter]["ab"] += 1
+        else:
+            stats[batter]["bb"] += (1 if event == "Walk" else 0)
+        if event in ["Single", "Double", "Triple", "Home Run"]:
+            stats[batter]["h"] += 1
+        if event == "Home Run":
+            stats[batter]["hr"] += 1
+        stats[batter]["rbi"] += p.get("rbi", 0)
+
+    # Sort by AB descending, minimum 2 PA
+    rows = [(b, s) for b, s in stats.items() if s["ab"] + s["bb"] >= 2]
+    rows.sort(key=lambda x: x[1]["ab"], reverse=True)
+
+    if not rows:
+        return f"Not enough plate appearances for *{team}* batters vs *{pitcher}*."
+
+    lines = [f"*{team} vs {pitcher}*\n_(all available seasons)_\n"]
+    lines.append(f"{'Batter':<22} {'PA':>3} {'AB':>3} {'H':>3} {'HR':>3} {'BB':>3} {'RBI':>3} {'AVG':>5}")
+    lines.append("-" * 50)
+    for batter, s in rows:
+        pa  = s["ab"] + s["bb"]
+        avg = f"{s['h']/s['ab']:.3f}" if s["ab"] > 0 else ".000"
+        lines.append(f"{batter:<22} {pa:>3} {s['ab']:>3} {s['h']:>3} {s['hr']:>3} {s['bb']:>3} {s['rbi']:>3} {avg:>5}")
+
+    return "\n".join(lines)
 
 
 def _handle_season_stats(player: str) -> str:
@@ -296,7 +346,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sub_intent = parsed.get("sub_intent")
             player     = parsed.get("player")
 
-            if sub_intent == "last_game" and player:
+            if sub_intent == "roster_vs_pitcher":
+                team    = parsed.get("home_team") or parsed.get("away_team")
+                pitcher = parsed.get("pitcher")
+                if team and pitcher:
+                    response = _handle_roster_vs_pitcher(team, pitcher)
+                else:
+                    response = generate_answer(text)
+            elif sub_intent == "last_game" and player:
                 response = _handle_last_game(player)
             elif sub_intent == "vs_matchup" and player:
                 pitcher = parsed.get("pitcher") or player
