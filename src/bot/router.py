@@ -47,7 +47,9 @@ For player_question, also set sub_intent:
 
 Entity extraction rules:
 - Normalize team names to full MLB names (e.g. "Yankees" -> "New York Yankees", "cerveceros" -> "Milwaukee Brewers")
-- Normalize player names: remove accents (e.g. "Ronald Acuna" not "Ronald Acuna with tilde"), use full name
+- Normalize player names: always return the full first and last name, no initials or abbreviations
+  (e.g. "J. Taillon" -> "Jameson Taillon", "G. Cole" -> "Gerrit Cole", "C. Sanchez" -> "Cristopher Sanchez")
+  Remove accents (e.g. "Ronald Acuna" not "Ronald Acuña")
 - For vs_matchup, put batter in "player" and pitcher in "pitcher"
 - home_team is the first team mentioned, away_team is the second
 - Extract starting pitcher names if mentioned alongside a team
