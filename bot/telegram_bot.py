@@ -184,12 +184,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif away_starter:
                     starters_line = f"🔥 Away starter: {away_starter}\n"
 
+                winner_label = "home" if result["home_prob"] > result["away_prob"] else "away"
                 response = (
                     f"⚾ *Win Probability*\n\n"
                     f"🏠 {home_team} (home): *{home_prob:.1f}%*\n"
                     f"✈️ {away_team} (away): *{away_prob:.1f}%*\n"
                     f"{starters_line}\n"
-                    f"📊 Predicted winner: *{winner}* ({conf:.1f}% confidence)\n\n"
+                    f"📊 Predicted winner: *{winner}* ({winner_label}) — {conf:.1f}% confidence\n\n"
                     f"_Based on Pythagorean win expectation, pitcher K/9, WHIP, and team OPS._"
                 )
             else:
