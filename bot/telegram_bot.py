@@ -346,7 +346,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sub_intent = parsed.get("sub_intent")
             player     = parsed.get("player")
 
-            if sub_intent == "roster_vs_pitcher":
+            if sub_intent == "vs_handedness":
+                hand = "left" if any(w in text.lower() for w in ["izquierd", "zurdo", "left", "lhp"]) else "right"
+                response = (
+                    f"That's a great question, but pitcher handedness splits aren't in our "
+                    f"dataset yet.\n\n"
+                    f"To support *{parsed.get('player')} vs {hand}-handed pitchers*, we'd need "
+                    f"to fetch pitcher handedness from the MLB Stats API and add it to the play "
+                    f"data. That's a planned feature — ask me to build it!"
+                )
+            elif sub_intent == "roster_vs_pitcher":
                 team    = parsed.get("home_team") or parsed.get("away_team")
                 pitcher = parsed.get("pitcher")
                 if team and pitcher:
