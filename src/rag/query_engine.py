@@ -290,11 +290,37 @@ def normalize_name(name):
 
     return name.lower().strip()
 
-def name_match(player, batter):
-    player_norm = normalize_name(player)
-    batter_norm = normalize_name(batter)
+def name_match(player, stored):
+    """
+    Fuzzy name match handling:
+    - Accents/suffixes (via normalize_name)
+    - Initials: "J. Taillon" matches "Jameson Taillon"
+    - Partial last name: "Taillon" matches "Jameson Taillon"
+    """
+    p = normalize_name(player)
+    s = normalize_name(stored)
 
-    return player_norm in batter_norm or batter_norm in player_norm
+    if not p or not s:
+        return False
+
+    # Substring match covers most cases
+    if p in s or s in p:
+        return True
+
+    # Initial match: "j. taillon" vs "jameson taillon"
+    # Split both into tokens and check if initials align
+    p_parts = p.replace(".", " ").split()
+    s_parts = s.replace(".", " ").split()
+    if len(p_parts) >= 2 and len(s_parts) >= 2:
+        # Last names must match
+        if p_parts[-1] == s_parts[-1]:
+            # First token of query is an initial if it's a single letter
+            if len(p_parts[0]) == 1 and s_parts[0].startswith(p_parts[0]):
+                return True
+            if len(s_parts[0]) == 1 and p_parts[0].startswith(s_parts[0]):
+                return True
+
+    return False
 
 
 def get_latest_game_by_player(player):

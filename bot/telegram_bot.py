@@ -110,39 +110,57 @@ def _handle_last_game(player: str) -> str:
 
 
 def _handle_season_stats(player: str) -> str:
-    events = get_all_events_for_player(player)
-    if not events:
-        return f"No season data found for *{player}*."
+    from src.rag.query_engine import _load_plays, name_match
+    plays = _load_plays()
+    # Only 2026 season (current year data)
+    matched = [
+        p for p in plays
+        if name_match(player, p.get("batter", "")) and p.get("date", "").startswith("2026")
+    ]
+    if not matched:
+        return f"No 2026 season data found for *{player}*."
 
-    event_list = [e.payload["event"] for e in events]
-    hits = sum(1 for e in event_list if e in ["Single", "Double", "Triple", "Home Run"])
-    hr   = event_list.count("Home Run")
-    bb   = event_list.count("Walk")
-    ab   = sum(1 for e in event_list if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
-    avg  = round(hits / ab, 3) if ab > 0 else 0.000
-    rbis = sum(e.payload.get("rbi", 0) for e in events)
+    events = [p["event"] for p in matched]
+    hits    = sum(1 for e in events if e in ["Single", "Double", "Triple", "Home Run"])
+    hr      = events.count("Home Run")
+    doubles = events.count("Double")
+    triples = events.count("Triple")
+    bb      = events.count("Walk")
+    ab      = sum(1 for e in events if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
+    avg     = round(hits / ab, 3) if ab > 0 else 0.000
+    rbis    = sum(p.get("rbi", 0) for p in matched)
 
     return (
-        f"*{player} — Season Stats*\n\n"
-        f"  AB: {ab}  H: {hits}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
+        f"*{player} — 2026 Season Stats*\n\n"
+        f"  AB: {ab}  H: {hits}  2B: {doubles}  3B: {triples}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
     )
 
 
 def _handle_vs_matchup(batter: str, pitcher: str) -> str:
-    events = get_events_player_pitcher(batter, pitcher)
-    if not events:
+    from src.rag.query_engine import _load_plays, name_match
+    plays = _load_plays()
+    matched = [
+        p for p in plays
+        if name_match(batter,  p.get("batter",  ""))
+        and name_match(pitcher, p.get("pitcher", ""))
+    ]
+    if not matched:
         return f"No matchup data found for *{batter}* vs *{pitcher}*."
 
-    event_list = [e.payload["event"] for e in events]
-    hits = sum(1 for e in event_list if e in ["Single", "Double", "Triple", "Home Run"])
-    hr   = event_list.count("Home Run")
-    bb   = event_list.count("Walk")
-    ab   = sum(1 for e in event_list if e not in ["Walk", "Sac Fly", "Sac Bunt"])
+    events = [p["event"] for p in matched]
+    hits = sum(1 for e in events if e in ["Single", "Double", "Triple", "Home Run"])
+    hr   = events.count("Home Run")
+    doubles = events.count("Double")
+    triples = events.count("Triple")
+    bb   = events.count("Walk")
+    ab   = sum(1 for e in events if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
     avg  = round(hits / ab, 3) if ab > 0 else 0.000
+    rbis = sum(p.get("rbi", 0) for p in matched)
 
     return (
-        f"*{batter} vs {pitcher}*\n\n"
-        f"  AB: {ab}  H: {hits}  HR: {hr}  BB: {bb}  AVG: {avg}"
+        f"*{batter} vs {pitcher}*\n"
+        f"_(career, all available seasons)_\n\n"
+        f"  AB: {ab}  H: {hits}  2B: {doubles}  3B: {triples}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
     )
 
 
