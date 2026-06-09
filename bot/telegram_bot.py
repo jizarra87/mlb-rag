@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 HELP_TEXT = (
     "⚾ *MLB Analytics Bot — Help*\n\n"
 
+    "*Team order matters*\n"
+    "Always mention the *home team first*, visitor second:\n"
+    "`Home Team vs Visitor Team`\n\n"
+
     "*Win prediction*\n"
     "Ask which team will win a game:\n"
     "• `Who wins Yankees vs Red Sox?`\n"
