@@ -61,7 +61,9 @@ HELP_TEXT = (
     "Ask about a player's stats or recent games:\n"
     "• `How many home runs does Ronald Acuña have?`\n"
     "• `What happened in Judge's last game?`\n"
-    "• `Luis Arraez vs Gerrit Cole`\n\n"
+    "• `Luis Arraez vs Gerrit Cole`\n"
+    "• `Dodgers roster stats vs Paul Skenes`\n"
+    "• `Como batea el lineup de los Yankees contra Gerrit Cole?`\n\n"
 
     "*General baseball questions*\n"
     "• `What is the DH rule?`\n"
@@ -86,63 +88,160 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _handle_last_game(player: str) -> str:
-    date, game_pk, events = get_latest_game_by_player(player)
-    if not events:
+    from src.rag.query_engine import _load_plays, name_match
+    plays = _load_plays()
+
+    matched = [
+        p for p in plays
+        if name_match(player, p.get("batter", ""))
+        or name_match(player, p.get("pitcher", ""))
+    ]
+    if not matched:
         return f"No recent game data found for *{player}*."
 
-    full_game_events = []
-    from src.rag.query_engine import client as qdrant_client
-    full_game_events = qdrant_client.scroll(
-        collection_name="mlb_articles",
-        scroll_filter={"must": [{"key": "game_pk", "match": {"value": game_pk}}]},
-        limit=5000,
-    )[0]
+    latest = max(matched, key=lambda p: p.get("date", ""))
+    latest_pk = latest["game_pk"]
+    latest_date = latest["date"]
 
-    ptype = detect_player_type(events, player)
-    stats = compute_game_stats(events, full_game_events, player) if ptype == "batter" \
-            else compute_pitcher_stats(events, full_game_events, player)
+    player_plays  = [p for p in matched        if p["game_pk"] == latest_pk]
+    full_game     = [p for p in plays           if p["game_pk"] == latest_pk]
 
-    date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
-    lines = [f"*{player} — Last Game ({date_str})*\n"]
-    for k, v in stats.items():
-        lines.append(f"  {k}: {v}")
+    # Determine batter vs pitcher by majority role
+    as_batter  = [p for p in player_plays if name_match(player, p.get("batter",  ""))]
+    as_pitcher = [p for p in player_plays if name_match(player, p.get("pitcher", ""))]
+    is_batter  = len(as_batter) >= len(as_pitcher)
+
+    if is_batter:
+        events  = [p["event"] for p in as_batter]
+        hits    = sum(1 for e in events if e in ["Single", "Double", "Triple", "Home Run"])
+        hr      = events.count("Home Run")
+        doubles = events.count("Double")
+        triples = events.count("Triple")
+        bb      = events.count("Walk")
+        ab      = sum(1 for e in events if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
+        avg     = round(hits / ab, 3) if ab > 0 else 0.000
+        rbis    = sum(p.get("rbi", 0) for p in as_batter)
+        # Runs scored: check runners movements in full game
+        runs = sum(
+            1 for p in full_game
+            for r in (p.get("runners") or [])
+            if isinstance(r, dict)
+            and r.get("movement", {}).get("end") == "score"
+            and r.get("details", {}).get("runner", {}).get("fullName", "") == latest.get("batter", "")
+        )
+        stats_str = f"AB: {ab}  H: {hits}  2B: {doubles}  3B: {triples}  HR: {hr}  BB: {bb}  RBI: {rbis}  R: {runs}  AVG: {avg}"
+    else:
+        ip_outs  = len(as_pitcher)
+        er       = sum(p.get("runs_scored", 0) for p in as_pitcher)
+        ks       = sum(1 for p in as_pitcher if p.get("event") == "Strikeout")
+        bb_p     = sum(1 for p in as_pitcher if p.get("event") == "Walk")
+        hits_all = sum(1 for p in as_pitcher if p.get("event") in ["Single", "Double", "Triple", "Home Run"])
+        ip       = round(ip_outs / 3, 1)
+        stats_str = f"IP: {ip}  H: {hits_all}  ER: {er}  K: {ks}  BB: {bb_p}"
+
+    return f"*{player} — Last Game ({latest_date})*\n\n  {stats_str}"
+
+
+def _handle_roster_vs_pitcher(team: str, pitcher: str) -> str:
+    from src.rag.query_engine import _load_plays, name_match
+    from collections import defaultdict
+    plays = _load_plays()
+
+    pitcher_plays = [p for p in plays if name_match(pitcher, p.get("pitcher", ""))]
+    team_plays = [
+        p for p in pitcher_plays
+        if team.lower() in p.get("team", "").lower()
+        or team.lower() in p.get("home_team", "").lower()
+        or team.lower() in p.get("away_team", "").lower()
+    ]
+
+    if not team_plays:
+        return f"No data found for *{team}* batters vs *{pitcher}*."
+
+    stats = defaultdict(lambda: {"ab": 0, "h": 0, "hr": 0, "bb": 0, "rbi": 0})
+    for p in team_plays:
+        batter = p.get("batter", "Unknown")
+        event  = p.get("event", "")
+        if event not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"]:
+            stats[batter]["ab"] += 1
+        else:
+            stats[batter]["bb"] += (1 if event == "Walk" else 0)
+        if event in ["Single", "Double", "Triple", "Home Run"]:
+            stats[batter]["h"] += 1
+        if event == "Home Run":
+            stats[batter]["hr"] += 1
+        stats[batter]["rbi"] += p.get("rbi", 0)
+
+    # Sort by AB descending, minimum 2 PA
+    rows = [(b, s) for b, s in stats.items() if s["ab"] + s["bb"] >= 2]
+    rows.sort(key=lambda x: x[1]["ab"], reverse=True)
+
+    if not rows:
+        return f"Not enough plate appearances for *{team}* batters vs *{pitcher}*."
+
+    lines = [f"*{team} vs {pitcher}*\n_(all available seasons)_\n"]
+    lines.append(f"{'Batter':<22} {'PA':>3} {'AB':>3} {'H':>3} {'HR':>3} {'BB':>3} {'RBI':>3} {'AVG':>5}")
+    lines.append("-" * 50)
+    for batter, s in rows:
+        pa  = s["ab"] + s["bb"]
+        avg = f"{s['h']/s['ab']:.3f}" if s["ab"] > 0 else ".000"
+        lines.append(f"{batter:<22} {pa:>3} {s['ab']:>3} {s['h']:>3} {s['hr']:>3} {s['bb']:>3} {s['rbi']:>3} {avg:>5}")
+
     return "\n".join(lines)
 
 
 def _handle_season_stats(player: str) -> str:
-    events = get_all_events_for_player(player)
-    if not events:
-        return f"No season data found for *{player}*."
+    from src.rag.query_engine import _load_plays, name_match
+    plays = _load_plays()
+    # Only 2026 season (current year data)
+    matched = [
+        p for p in plays
+        if name_match(player, p.get("batter", "")) and p.get("date", "").startswith("2026")
+    ]
+    if not matched:
+        return f"No 2026 season data found for *{player}*."
 
-    event_list = [e.payload["event"] for e in events]
-    hits = sum(1 for e in event_list if e in ["Single", "Double", "Triple", "Home Run"])
-    hr   = event_list.count("Home Run")
-    bb   = event_list.count("Walk")
-    ab   = sum(1 for e in event_list if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
-    avg  = round(hits / ab, 3) if ab > 0 else 0.000
-    rbis = sum(e.payload.get("rbi", 0) for e in events)
+    events = [p["event"] for p in matched]
+    hits    = sum(1 for e in events if e in ["Single", "Double", "Triple", "Home Run"])
+    hr      = events.count("Home Run")
+    doubles = events.count("Double")
+    triples = events.count("Triple")
+    bb      = events.count("Walk")
+    ab      = sum(1 for e in events if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
+    avg     = round(hits / ab, 3) if ab > 0 else 0.000
+    rbis    = sum(p.get("rbi", 0) for p in matched)
 
     return (
-        f"*{player} — Season Stats*\n\n"
-        f"  AB: {ab}  H: {hits}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
+        f"*{player} — 2026 Season Stats*\n\n"
+        f"  AB: {ab}  H: {hits}  2B: {doubles}  3B: {triples}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
     )
 
 
 def _handle_vs_matchup(batter: str, pitcher: str) -> str:
-    events = get_events_player_pitcher(batter, pitcher)
-    if not events:
+    from src.rag.query_engine import _load_plays, name_match
+    plays = _load_plays()
+    matched = [
+        p for p in plays
+        if name_match(batter,  p.get("batter",  ""))
+        and name_match(pitcher, p.get("pitcher", ""))
+    ]
+    if not matched:
         return f"No matchup data found for *{batter}* vs *{pitcher}*."
 
-    event_list = [e.payload["event"] for e in events]
-    hits = sum(1 for e in event_list if e in ["Single", "Double", "Triple", "Home Run"])
-    hr   = event_list.count("Home Run")
-    bb   = event_list.count("Walk")
-    ab   = sum(1 for e in event_list if e not in ["Walk", "Sac Fly", "Sac Bunt"])
+    events = [p["event"] for p in matched]
+    hits = sum(1 for e in events if e in ["Single", "Double", "Triple", "Home Run"])
+    hr   = events.count("Home Run")
+    doubles = events.count("Double")
+    triples = events.count("Triple")
+    bb   = events.count("Walk")
+    ab   = sum(1 for e in events if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
     avg  = round(hits / ab, 3) if ab > 0 else 0.000
+    rbis = sum(p.get("rbi", 0) for p in matched)
 
     return (
-        f"*{batter} vs {pitcher}*\n\n"
-        f"  AB: {ab}  H: {hits}  HR: {hr}  BB: {bb}  AVG: {avg}"
+        f"*{batter} vs {pitcher}*\n"
+        f"_(career, all available seasons)_\n\n"
+        f"  AB: {ab}  H: {hits}  2B: {doubles}  3B: {triples}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
     )
 
 
@@ -184,12 +283,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif away_starter:
                     starters_line = f"🔥 Away starter: {away_starter}\n"
 
+                winner_label = "home" if result["home_prob"] > result["away_prob"] else "away"
                 response = (
                     f"⚾ *Win Probability*\n\n"
                     f"🏠 {home_team} (home): *{home_prob:.1f}%*\n"
                     f"✈️ {away_team} (away): *{away_prob:.1f}%*\n"
                     f"{starters_line}\n"
-                    f"📊 Predicted winner: *{winner}* ({conf:.1f}% confidence)\n\n"
+                    f"📊 Predicted winner: *{winner}* ({winner_label}) — {conf:.1f}% confidence\n\n"
                     f"_Based on Pythagorean win expectation, pitcher K/9, WHIP, and team OPS._"
                 )
             else:
@@ -246,7 +346,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sub_intent = parsed.get("sub_intent")
             player     = parsed.get("player")
 
-            if sub_intent == "last_game" and player:
+            if sub_intent == "vs_handedness":
+                hand = "left" if any(w in text.lower() for w in ["izquierd", "zurdo", "left", "lhp"]) else "right"
+                response = (
+                    f"That's a great question, but pitcher handedness splits aren't in our "
+                    f"dataset yet.\n\n"
+                    f"To support *{parsed.get('player')} vs {hand}-handed pitchers*, we'd need "
+                    f"to fetch pitcher handedness from the MLB Stats API and add it to the play "
+                    f"data. That's a planned feature — ask me to build it!"
+                )
+            elif sub_intent == "roster_vs_pitcher":
+                team    = parsed.get("home_team") or parsed.get("away_team")
+                pitcher = parsed.get("pitcher")
+                if team and pitcher:
+                    response = _handle_roster_vs_pitcher(team, pitcher)
+                else:
+                    response = generate_answer(text)
+            elif sub_intent == "last_game" and player:
                 response = _handle_last_game(player)
             elif sub_intent == "vs_matchup" and player:
                 pitcher = parsed.get("pitcher") or player
