@@ -26,6 +26,28 @@ llm = OpenAI(
 # Qdrant client
 client = QdrantClient(QDRANT_HOST, port=6333)
 
+PLAY_FILES = [
+    "data/full_ingestion.json",
+    "data/historical/plays_2025.json",
+    "data/historical/plays_2024.json",
+    "data/historical/plays_2023.json",
+]
+
+_plays_cache = None
+
+def _load_plays():
+    global _plays_cache
+    if _plays_cache is not None:
+        return _plays_cache
+    import json
+    all_plays = []
+    for path in PLAY_FILES:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                all_plays.extend(json.load(f))
+    _plays_cache = all_plays
+    return all_plays
+
 
 # -----------------------------
 # Retrieval Layer
@@ -162,20 +184,22 @@ Answer clearly using the context.
 # -----------------------------
 
 def get_all_events_for_player(player_name):
-    results = client.scroll(
-        collection_name="mlb_articles",
-        scroll_filter={
-            "must": [
-                {
-                    "key": "batter",
-                    "match": {"value": player_name}
-                }
-            ]
-        },
-        limit=1000
-    )
-    
-    return results[0]  # points
+    # Find matching game_pks from local files, then fetch from Qdrant
+    plays = _load_plays()
+    game_pks = list({p["game_pk"] for p in plays if name_match(player_name, p.get("batter", ""))})
+    if not game_pks:
+        return []
+    all_points = []
+    # Qdrant filter supports 'any' for keyword fields
+    for i in range(0, len(game_pks), 100):
+        batch = game_pks[i:i+100]
+        pts = client.scroll(
+            collection_name="mlb_articles",
+            scroll_filter={"must": [{"key": "game_pk", "match": {"any": batch}}]},
+            limit=5000,
+        )[0]
+        all_points.extend(p for p in pts if name_match(player_name, p.payload.get("batter", "")))
+    return all_points
 
 def get_events_by_team(team_name):
     results = client.scroll(
@@ -206,17 +230,28 @@ def get_events_player_team(player, team):
     return results[0]
 
 def get_events_player_pitcher(player, pitcher):
-    results = client.scroll(
-        collection_name="mlb_articles",
-        scroll_filter={
-            "must": [
-                {"key": "batter", "match": {"value": player}},
-                {"key": "pitcher", "match": {"value": pitcher}}
-            ]
-        },
-        limit=1000
-    )
-    return results[0]
+    plays = _load_plays()
+    game_pks = list({
+        p["game_pk"] for p in plays
+        if name_match(player,  p.get("batter", ""))
+        and name_match(pitcher, p.get("pitcher", ""))
+    })
+    if not game_pks:
+        return []
+    all_points = []
+    for i in range(0, len(game_pks), 100):
+        batch = game_pks[i:i+100]
+        pts = client.scroll(
+            collection_name="mlb_articles",
+            scroll_filter={"must": [{"key": "game_pk", "match": {"any": batch}}]},
+            limit=5000,
+        )[0]
+        all_points.extend(
+            p for p in pts
+            if name_match(player,  p.payload.get("batter", ""))
+            and name_match(pitcher, p.payload.get("pitcher", ""))
+        )
+    return all_points
 
 def get_latest_game_full():
     # traer muchos registros
@@ -263,23 +298,33 @@ def name_match(player, batter):
 
 
 def get_latest_game_by_player(player):
-    # Fetch only events where the player appears as batter or pitcher.
-    # We query both fields separately and merge, because Qdrant filter "should"
-    # (OR) requires at least one condition to match — this avoids a full collection scan.
-    batter_res = client.scroll(
+    # Find the player's most recent game_pk from local play files (handles
+    # accents and Jr. suffixes via normalize_name fuzzy match).
+    plays = _load_plays()
+    matched = [
+        p for p in plays
+        if name_match(player, p.get("batter", ""))
+        or name_match(player, p.get("pitcher", ""))
+    ]
+
+    if not matched:
+        return None, None, []
+
+    # Find the latest game
+    latest = max(matched, key=lambda p: p.get("date", ""))
+    latest_game_pk = latest["game_pk"]
+    latest_date = datetime.strptime(latest["date"], "%Y-%m-%d")
+
+    # Fetch all plays for that game from Qdrant (already indexed)
+    all_game_points = client.scroll(
         collection_name="mlb_articles",
-        scroll_filter={
-            "should": [
-                {"key": "batter", "match": {"value": player}},
-                {"key": "pitcher", "match": {"value": player}},
-            ]
-        },
+        scroll_filter={"must": [{"key": "game_pk", "match": {"value": latest_game_pk}}]},
         limit=5000,
     )[0]
 
-    # Fuzzy-match in case the stored name differs slightly (accents, suffixes)
+    # Filter to only this player's plate appearances / pitching appearances
     filtered = [
-        p for p in batter_res
+        p for p in all_game_points
         if name_match(player, p.payload.get("batter", ""))
         or name_match(player, p.payload.get("pitcher", ""))
     ]
