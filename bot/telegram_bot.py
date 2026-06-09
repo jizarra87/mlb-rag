@@ -1,21 +1,23 @@
 """
 MLB Telegram Bot
 
-Routes incoming messages to either:
-  - Win probability prediction (team vs team questions)
-  - RAG query engine (general baseball questions)
+Routes incoming messages via LLM router to:
+  - win_prediction  : win probability model
+  - f5_total        : F5 run total model
+  - player_question : RAG query engine
+  - general         : RAG query engine
 
-Requires TELEGRAM_BOT_TOKEN in environment.
+Requires TELEGRAM_BOT_TOKEN and OPENAI_API_KEY in environment.
 """
 
 import logging
 import os
-import re
 
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
+from src.bot.router import route
 from src.models.predict import predict
 from src.models.predict_f5 import predict_f5
 from src.rag.query_engine import generate_answer
@@ -28,158 +30,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MLB_TEAMS = {
-    "arizona diamondbacks", "atlanta braves", "baltimore orioles",
-    "boston red sox", "chicago cubs", "chicago white sox",
-    "cincinnati reds", "cleveland guardians", "colorado rockies",
-    "detroit tigers", "houston astros", "kansas city royals",
-    "los angeles angels", "los angeles dodgers", "miami marlins",
-    "milwaukee brewers", "minnesota twins", "new york mets",
-    "new york yankees", "oakland athletics", "philadelphia phillies",
-    "pittsburgh pirates", "san diego padres", "san francisco giants",
-    "seattle mariners", "st. louis cardinals", "tampa bay rays",
-    "texas rangers", "toronto blue jays", "washington nationals",
-    # common short forms
-    "yankees", "red sox", "dodgers", "astros", "braves", "mets",
-    "cubs", "cardinals", "giants", "padres", "phillies", "rangers",
-    "angels", "mariners", "twins", "rays", "orioles", "guardians",
-    "tigers", "royals", "brewers", "pirates", "reds", "rockies",
-    "marlins", "nationals", "athletics", "diamondbacks",
-}
+HELP_TEXT = (
+    "⚾ *MLB Analytics Bot — Help*\n\n"
 
-PREDICT_KEYWORDS = [
-    "who wins", "who will win", "winner", "predict", "chance",
-    "probability", "favored", "favourite", "favorite", "odds",
-]
+    "*Win prediction*\n"
+    "Ask which team will win a game:\n"
+    "• `Who wins Yankees vs Red Sox?`\n"
+    "• `Will the Dodgers beat the Astros tonight?`\n"
+    "• `Yankees with Gerrit Cole vs Red Sox with Brayan Bello`\n\n"
 
-F5_KEYWORDS = [
-    "f5", "first 5", "first five", "5 innings", "five innings",
-    "total runs", "over", "under", "over/under", "total",
-    "carreras", "runs",
-]
+    "*F5 run total*\n"
+    "Predict runs in the first 5 innings:\n"
+    "• `Total runs Yankees vs Red Sox`\n"
+    "• `F5 over/under 4.5 Dodgers vs Astros`\n"
+    "• `How many runs in the first 5, Blue Jays with Corbin vs Phillies with Sanchez?`\n\n"
 
+    "*Player stats & history*\n"
+    "Ask about a player's stats or recent games:\n"
+    "• `How many home runs does Ronald Acuña have?`\n"
+    "• `What happened in Judge's last game?`\n"
+    "• `Luis Arraez vs Gerrit Cole`\n\n"
 
-def is_f5_question(text: str) -> bool:
-    t = text.lower()
-    if not any(kw in t for kw in F5_KEYWORDS):
-        return False
-    # Must also mention teams or vs
-    return "vs" in t or any(team in t for team in MLB_TEAMS)
+    "*General baseball questions*\n"
+    "• `What is the DH rule?`\n"
+    "• `Who has the most Cy Young awards?`\n\n"
 
-
-def is_prediction_question(text: str) -> bool:
-    t = text.lower()
-    if any(kw in t for kw in PREDICT_KEYWORDS):
-        return True
-    # "vs/beat/versus" only triggers prediction if at least one side is a known team
-    if "vs" in t or "beat" in t or "versus" in t:
-        if any(team in t for team in MLB_TEAMS):
-            return True
-    # "Team with Pitcher vs Team with Pitcher" pattern
-    if "with" in t and "vs" in t:
-        return any(team in t for team in MLB_TEAMS)
-    return False
-
-
-def extract_teams_from_message(text: str):
-    """
-    Extract two team names from patterns like:
-      'Yankees vs Red Sox'
-      'Who wins Dodgers vs Astros tonight?'
-      'Will the Cubs beat the Cardinals?'
-    Returns (team1, team2) or (None, None).
-    """
-    # "Team with Pitcher vs Team with Pitcher" — split on " with " to isolate teams
-    if re.search(r'\bwith\b', text, re.IGNORECASE):
-        parts = re.split(r'\s+with\s+', text, flags=re.IGNORECASE)
-        # parts[0]="...Team1", parts[1]="Pitcher1 vs Team2", parts[2]="Pitcher2..."
-        if len(parts) >= 3:
-            t1_match = re.search(r'([A-Za-z]+(?:\s+[A-Za-z]+)*)$', parts[0].strip())
-            t2_match = re.search(r'vs\.?\s+([A-Za-z]+(?:\s+[A-Za-z]+)*)$', parts[1].strip(), re.IGNORECASE)
-            if t1_match and t2_match:
-                return t1_match.group(1).strip().title(), t2_match.group(1).strip().title()
-
-    match = re.search(r"([A-Za-z ]+?)\s+vs\.?\s+([A-Za-z ]+?)(?:,|\?|$|tonight|today|game|with|starting|\s*$)", text, re.IGNORECASE)
-    if match:
-        t1 = match.group(1).strip().title()
-        t2 = match.group(2).strip().title()
-        for word in ["The ", "Will ", "Who Wins ", "Total Runs ", "Total ", "F5 Runs ", "F5 ", "Runs ", "Over/Under ", "Over ", "Under "]:
-            t1 = t1.replace(word, "")
-            t2 = t2.replace(word, "")
-        # Strip leading numbers (e.g. "4.5 ")
-        t1 = re.sub(r'^\d+\.?\d*\s+', '', t1)
-        t2 = re.sub(r'^\d+\.?\d*\s+', '', t2)
-        return t1.strip(), t2.strip()
-
-    match = re.search(r"([A-Za-z ]+?)\s+beat\s+([A-Za-z ]+?)(?:,|\?|$)", text, re.IGNORECASE)
-    if match:
-        t1 = match.group(1).strip().title()
-        t2 = match.group(2).strip().title()
-        for word in ["The ", "Will ", "Can "]:
-            t1 = t1.replace(word, "")
-            t2 = t2.replace(word, "")
-        return t1.strip(), t2.strip()
-
-    return None, None
-
-
-def extract_starters_from_message(text: str):
-    """
-    Extract starting pitcher names from patterns like:
-      'Yankees vs Red Sox, Cole vs Bello'
-      'Yankees with Cole vs Red Sox with Bello'
-      'Yankees vs Red Sox starting Cole and Bello'
-    Returns (home_starter, away_starter) or (None, None).
-    """
-    # Pitcher name pattern: accepts "Gerrit Cole", "C.Cole", "C.Early", "I.Seymour"
-    NAME = r"([A-Z][a-zA-Z]*\.?\s*[A-Z][a-zA-Z\-']+)"
-
-    # "Team with Pitcher vs Team with Pitcher"
-    match = re.search(rf"with\s+{NAME}\s+vs.+with\s+{NAME}", text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip().title(), match.group(2).strip().title()
-
-    # After comma: "Cole vs Bello" or "Cole and Bello"
-    match = re.search(rf",\s*{NAME}\s+(?:vs\.?|and)\s+{NAME}", text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip().title(), match.group(2).strip().title()
-
-    # "starting Pitcher1 and/vs Pitcher2"
-    match = re.search(rf"starting\s+{NAME}\s+(?:vs\.?|and)\s+{NAME}", text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip().title(), match.group(2).strip().title()
-
-    return None, None
-
-
-def _extract_line(text: str):
-    """Extract an over/under line like 4.5 or 5 from the message."""
-    match = re.search(r'\b(\d+\.5|\d+)\b', text)
-    if match:
-        val = float(match.group(1))
-        # Reasonable F5 line range
-        if 1.0 <= val <= 15.0:
-            return val
-    return None
+    "_Powered by RAG + ML prediction models._\n"
+    "_Use /help to see this message again._"
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "⚾ MLB Analytics Bot\n\n"
-        "Ask me anything about baseball:\n\n"
-        "*Win predictions:*\n"
-        "• Who wins Yankees vs Red Sox?\n"
-        "• Yankees with Gerrit Cole vs Red Sox with Brayan Bello\n\n"
-        "*F5 run totals:*\n"
-        "• Total runs Yankees vs Red Sox\n"
-        "• Over/under 4.5 Yankees with Cole vs Red Sox with Bello\n"
-        "• F5 runs Dodgers vs Astros\n\n"
-        "*Player questions:*\n"
-        "• How many HRs does Aaron Judge have?\n"
-        "• Luis Arraez vs Gerrit Cole\n\n"
-        "Powered by RAG + ML prediction model.",
+        "⚾ Welcome to the MLB Analytics Bot!\n\n"
+        "Ask me anything about baseball — win predictions, run totals, player stats, and more.\n\n"
+        "Type /help to see all supported question types with examples.",
         parse_mode="Markdown"
     )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,52 +81,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
 
     try:
-        if is_f5_question(text):
-            home_team, away_team = extract_teams_from_message(text)
+        parsed = route(text)
+        intent = parsed.get("intent", "general")
+        logger.info(f"Routed to: {intent} | {parsed}")
+
+        if intent == "win_prediction":
+            home_team = parsed.get("home_team")
+            away_team = parsed.get("away_team")
 
             if home_team and away_team:
-                home_starter, away_starter = extract_starters_from_message(text)
-                line = _extract_line(text)
-                result = predict_f5(
-                    home_team=home_team,
-                    away_team=away_team,
-                    home_starter=home_starter,
-                    away_starter=away_starter,
-                    line=line,
-                )
-                starters_line = ""
-                if home_starter and away_starter:
-                    starters_line = f"🔥 Starters: {home_starter} vs {away_starter}\n"
-
-                if line is not None:
-                    over_pct  = result["over_prob"]  * 100
-                    under_pct = result["under_prob"] * 100
-                    lean = "OVER" if result["over_prob"] > result["under_prob"] else "UNDER"
-                    conf = max(over_pct, under_pct)
-                    ou_line = (
-                        f"📈 Over  {line}: *{over_pct:.1f}%*\n"
-                        f"📉 Under {line}: *{under_pct:.1f}%*\n\n"
-                        f"📊 Lean: *{lean}* ({conf:.1f}% confidence)\n"
-                    )
-                else:
-                    ou_line = ""
-
-                response = (
-                    f"⚾ *F5 Run Total*\n\n"
-                    f"🏠 {home_team} vs ✈️ {away_team}\n"
-                    f"{starters_line}"
-                    f"🎯 Expected F5 total: *{result['expected_total']:.1f} runs*\n\n"
-                    f"{ou_line}"
-                    f"_Based on starter ERA/WHIP/K9 and team OPS._"
-                )
-            else:
-                response = generate_answer(text)
-
-        elif is_prediction_question(text):
-            home_team, away_team = extract_teams_from_message(text)
-
-            if home_team and away_team:
-                home_starter, away_starter = extract_starters_from_message(text)
+                home_starter = parsed.get("home_starter")
+                away_starter = parsed.get("away_starter")
                 result = predict(
                     home_team=home_team,
                     away_team=away_team,
@@ -266,7 +122,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 response = generate_answer(text)
 
+        elif intent == "f5_total":
+            home_team = parsed.get("home_team")
+            away_team = parsed.get("away_team")
+
+            if home_team and away_team:
+                home_starter = parsed.get("home_starter")
+                away_starter = parsed.get("away_starter")
+                line = parsed.get("line")
+                result = predict_f5(
+                    home_team=home_team,
+                    away_team=away_team,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                    line=line,
+                )
+                starters_line = ""
+                if home_starter and away_starter:
+                    starters_line = f"🔥 Starters: {home_starter} vs {away_starter}\n"
+                elif home_starter:
+                    starters_line = f"🔥 Home starter: {home_starter}\n"
+                elif away_starter:
+                    starters_line = f"🔥 Away starter: {away_starter}\n"
+
+                if line is not None:
+                    over_pct  = result["over_prob"]  * 100
+                    under_pct = result["under_prob"] * 100
+                    lean = "OVER" if result["over_prob"] > result["under_prob"] else "UNDER"
+                    conf = max(over_pct, under_pct)
+                    ou_line = (
+                        f"📈 Over  {line}: *{over_pct:.1f}%*\n"
+                        f"📉 Under {line}: *{under_pct:.1f}%*\n\n"
+                        f"📊 Lean: *{lean}* ({conf:.1f}% confidence)\n"
+                    )
+                else:
+                    ou_line = ""
+
+                response = (
+                    f"⚾ *F5 Run Total*\n\n"
+                    f"🏠 {home_team} vs ✈️ {away_team}\n"
+                    f"{starters_line}"
+                    f"🎯 Expected F5 total: *{result['expected_total']:.1f} runs*\n\n"
+                    f"{ou_line}"
+                    f"_Based on starter ERA/WHIP/K9 and team OPS._"
+                )
+            else:
+                response = generate_answer(text)
+
         else:
+            # player_question and general both go to RAG
             response = generate_answer(text)
 
     except Exception as e:
@@ -288,6 +192,7 @@ def main():
     app = ApplicationBuilder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help",  help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
 
