@@ -37,10 +37,18 @@ Available intents:
 - player_question: user asks about a specific player's stats, history, or a player vs player matchup
 - general: anything else (rules, history, general baseball questions)
 
+For player_question, also set sub_intent:
+- last_game: user asks what happened or how a player performed in their most recent game
+  (keywords in any language: "ultimo juego", "last game", "last night", "anoche", "hoy", "today")
+- season_stats: user asks for cumulative stats this season
+  (keywords: "this season", "esta temporada", "how many", "cuantos", "batting average", "home runs")
+- vs_matchup: user asks about one player's historical record against another player
+  (pattern: "Player A vs Player B", "A contra B")
+
 Entity extraction rules:
-- Normalize team names to full MLB names (e.g. "Yankees" -> "New York Yankees", "Sox" -> "Boston Red Sox")
-- Normalize player names: remove accents (e.g. "Ronald Acuna" not "Ronald Acuña"), use full name
-- If a player changed teams, still return their name as-is (the system will handle team lookup)
+- Normalize team names to full MLB names (e.g. "Yankees" -> "New York Yankees", "cerveceros" -> "Milwaukee Brewers")
+- Normalize player names: remove accents (e.g. "Ronald Acuna" not "Ronald Acuna with tilde"), use full name
+- For vs_matchup, put batter in "player" and pitcher in "pitcher"
 - home_team is the first team mentioned, away_team is the second
 - Extract starting pitcher names if mentioned alongside a team
 - Extract a numeric line (e.g. 4.5) for f5_total if present
@@ -49,11 +57,13 @@ Entity extraction rules:
 Respond ONLY with valid JSON, no explanation. Schema:
 {
   "intent": "win_prediction" | "f5_total" | "player_question" | "general",
+  "sub_intent": "last_game" | "season_stats" | "vs_matchup" | null,
   "home_team": "<full team name or null>",
   "away_team": "<full team name or null>",
   "home_starter": "<pitcher full name or null>",
   "away_starter": "<pitcher full name or null>",
   "player": "<player full name or null>",
+  "pitcher": "<pitcher full name for vs_matchup or null>",
   "line": <number or null>
 }"""
 

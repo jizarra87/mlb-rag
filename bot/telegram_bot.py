@@ -20,7 +20,15 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from src.bot.router import route
 from src.models.predict import predict
 from src.models.predict_f5 import predict_f5
-from src.rag.query_engine import generate_answer
+from src.rag.query_engine import (
+    generate_answer,
+    get_latest_game_by_player,
+    get_all_events_for_player,
+    get_events_player_pitcher,
+    compute_game_stats,
+    compute_pitcher_stats,
+    detect_player_type,
+)
 
 load_dotenv(".env.dev")
 
@@ -71,6 +79,67 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
+
+
+def _handle_last_game(player: str) -> str:
+    date, game_pk, events = get_latest_game_by_player(player)
+    if not events:
+        return f"No recent game data found for *{player}*."
+
+    full_game_events = []
+    from src.rag.query_engine import client as qdrant_client
+    full_game_events = qdrant_client.scroll(
+        collection_name="mlb_articles",
+        scroll_filter={"must": [{"key": "game_pk", "match": {"value": game_pk}}]},
+        limit=5000,
+    )[0]
+
+    ptype = detect_player_type(events, player)
+    stats = compute_game_stats(events, full_game_events, player) if ptype == "batter" \
+            else compute_pitcher_stats(events, full_game_events, player)
+
+    date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
+    lines = [f"*{player} — Last Game ({date_str})*\n"]
+    for k, v in stats.items():
+        lines.append(f"  {k}: {v}")
+    return "\n".join(lines)
+
+
+def _handle_season_stats(player: str) -> str:
+    events = get_all_events_for_player(player)
+    if not events:
+        return f"No season data found for *{player}*."
+
+    event_list = [e.payload["event"] for e in events]
+    hits = sum(1 for e in event_list if e in ["Single", "Double", "Triple", "Home Run"])
+    hr   = event_list.count("Home Run")
+    bb   = event_list.count("Walk")
+    ab   = sum(1 for e in event_list if e not in ["Walk", "Sac Fly", "Sac Bunt", "Hit By Pitch"])
+    avg  = round(hits / ab, 3) if ab > 0 else 0.000
+    rbis = sum(e.payload.get("rbi", 0) for e in events)
+
+    return (
+        f"*{player} — Season Stats*\n\n"
+        f"  AB: {ab}  H: {hits}  HR: {hr}  BB: {bb}  RBI: {rbis}  AVG: {avg}"
+    )
+
+
+def _handle_vs_matchup(batter: str, pitcher: str) -> str:
+    events = get_events_player_pitcher(batter, pitcher)
+    if not events:
+        return f"No matchup data found for *{batter}* vs *{pitcher}*."
+
+    event_list = [e.payload["event"] for e in events]
+    hits = sum(1 for e in event_list if e in ["Single", "Double", "Triple", "Home Run"])
+    hr   = event_list.count("Home Run")
+    bb   = event_list.count("Walk")
+    ab   = sum(1 for e in event_list if e not in ["Walk", "Sac Fly", "Sac Bunt"])
+    avg  = round(hits / ab, 3) if ab > 0 else 0.000
+
+    return (
+        f"*{batter} vs {pitcher}*\n\n"
+        f"  AB: {ab}  H: {hits}  HR: {hr}  BB: {bb}  AVG: {avg}"
+    )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -169,8 +238,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 response = generate_answer(text)
 
+        elif intent == "player_question":
+            sub_intent = parsed.get("sub_intent")
+            player     = parsed.get("player")
+
+            if sub_intent == "last_game" and player:
+                response = _handle_last_game(player)
+            elif sub_intent == "vs_matchup" and player:
+                pitcher = parsed.get("pitcher") or player
+                batter  = player
+                response = _handle_vs_matchup(batter, pitcher)
+            elif sub_intent == "season_stats" and player:
+                response = _handle_season_stats(player)
+            else:
+                response = generate_answer(text)
+
         else:
-            # player_question and general both go to RAG
             response = generate_answer(text)
 
     except Exception as e:
