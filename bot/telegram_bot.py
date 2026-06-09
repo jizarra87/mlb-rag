@@ -17,6 +17,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 from src.models.predict import predict
+from src.models.predict_f5 import predict_f5
 from src.rag.query_engine import generate_answer
 
 load_dotenv(".env.dev")
@@ -50,6 +51,20 @@ PREDICT_KEYWORDS = [
     "who wins", "who will win", "winner", "predict", "chance",
     "probability", "favored", "favourite", "favorite", "odds",
 ]
+
+F5_KEYWORDS = [
+    "f5", "first 5", "first five", "5 innings", "five innings",
+    "total runs", "over", "under", "over/under", "total",
+    "carreras", "runs",
+]
+
+
+def is_f5_question(text: str) -> bool:
+    t = text.lower()
+    if not any(kw in t for kw in F5_KEYWORDS):
+        return False
+    # Must also mention teams or vs
+    return "vs" in t or any(team in t for team in MLB_TEAMS)
 
 
 def is_prediction_question(text: str) -> bool:
@@ -88,9 +103,12 @@ def extract_teams_from_message(text: str):
     if match:
         t1 = match.group(1).strip().title()
         t2 = match.group(2).strip().title()
-        for word in ["The ", "Will ", "Who Wins "]:
+        for word in ["The ", "Will ", "Who Wins ", "Total Runs ", "Total ", "F5 Runs ", "F5 ", "Runs ", "Over/Under ", "Over ", "Under "]:
             t1 = t1.replace(word, "")
             t2 = t2.replace(word, "")
+        # Strip leading numbers (e.g. "4.5 ")
+        t1 = re.sub(r'^\d+\.?\d*\s+', '', t1)
+        t2 = re.sub(r'^\d+\.?\d*\s+', '', t2)
         return t1.strip(), t2.strip()
 
     match = re.search(r"([A-Za-z ]+?)\s+beat\s+([A-Za-z ]+?)(?:,|\?|$)", text, re.IGNORECASE)
@@ -134,18 +152,30 @@ def extract_starters_from_message(text: str):
     return None, None
 
 
+def _extract_line(text: str):
+    """Extract an over/under line like 4.5 or 5 from the message."""
+    match = re.search(r'\b(\d+\.5|\d+)\b', text)
+    if match:
+        val = float(match.group(1))
+        # Reasonable F5 line range
+        if 1.0 <= val <= 15.0:
+            return val
+    return None
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚾ MLB Analytics Bot\n\n"
         "Ask me anything about baseball:\n\n"
-        "*Predictions (team vs team):*\n"
+        "*Win predictions:*\n"
         "• Who wins Yankees vs Red Sox?\n"
-        "• Will the Dodgers beat the Astros?\n"
-        "• Yankees vs Red Sox, Cole vs Bello\n"
         "• Yankees with Gerrit Cole vs Red Sox with Brayan Bello\n\n"
+        "*F5 run totals:*\n"
+        "• Total runs Yankees vs Red Sox\n"
+        "• Over/under 4.5 Yankees with Cole vs Red Sox with Bello\n"
+        "• F5 runs Dodgers vs Astros\n\n"
         "*Player questions:*\n"
         "• How many HRs does Aaron Judge have?\n"
-        "• What happened in Judge's last game?\n"
         "• Luis Arraez vs Gerrit Cole\n\n"
         "Powered by RAG + ML prediction model.",
         parse_mode="Markdown"
@@ -160,7 +190,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
 
     try:
-        if is_prediction_question(text):
+        if is_f5_question(text):
+            home_team, away_team = extract_teams_from_message(text)
+
+            if home_team and away_team:
+                home_starter, away_starter = extract_starters_from_message(text)
+                line = _extract_line(text)
+                result = predict_f5(
+                    home_team=home_team,
+                    away_team=away_team,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                    line=line,
+                )
+                starters_line = ""
+                if home_starter and away_starter:
+                    starters_line = f"🔥 Starters: {home_starter} vs {away_starter}\n"
+
+                if line is not None:
+                    over_pct  = result["over_prob"]  * 100
+                    under_pct = result["under_prob"] * 100
+                    lean = "OVER" if result["over_prob"] > result["under_prob"] else "UNDER"
+                    conf = max(over_pct, under_pct)
+                    ou_line = (
+                        f"📈 Over  {line}: *{over_pct:.1f}%*\n"
+                        f"📉 Under {line}: *{under_pct:.1f}%*\n\n"
+                        f"📊 Lean: *{lean}* ({conf:.1f}% confidence)\n"
+                    )
+                else:
+                    ou_line = ""
+
+                response = (
+                    f"⚾ *F5 Run Total*\n\n"
+                    f"🏠 {home_team} vs ✈️ {away_team}\n"
+                    f"{starters_line}"
+                    f"🎯 Expected F5 total: *{result['expected_total']:.1f} runs*\n\n"
+                    f"{ou_line}"
+                    f"_Based on starter ERA/WHIP/K9 and team OPS._"
+                )
+            else:
+                response = generate_answer(text)
+
+        elif is_prediction_question(text):
             home_team, away_team = extract_teams_from_message(text)
 
             if home_team and away_team:
@@ -193,7 +264,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"_Based on Pythagorean win expectation, pitcher K/9, WHIP, and team OPS._"
                 )
             else:
-                # Could not parse teams — fall through to RAG
                 response = generate_answer(text)
 
         else:
