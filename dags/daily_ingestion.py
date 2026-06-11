@@ -26,9 +26,10 @@ DEFAULT_ARGS = {
 def ingest_yesterday(**context):
     import json
     import os
+    from datetime import date
     from src.ingestion.mlb_feed_ingestion import run_feed_ingestion
 
-    yesterday = (context["execution_date"] - timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Ingesting games for {yesterday}...")
 
     new_plays, new_summaries = run_feed_ingestion(
@@ -104,7 +105,8 @@ def upsert_embeddings(**context):
         all_plays = json.load(f)
 
     # Only embed plays from yesterday
-    yesterday = (context["execution_date"] - timedelta(days=1)).strftime("%Y-%m-%d")
+    from datetime import date
+    yesterday = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
     new_plays = [p for p in all_plays if p.get("date") == yesterday]
     print(f"Embedding {len(new_plays)} plays for {yesterday}...")
 
@@ -159,7 +161,7 @@ with DAG(
     dag_id="mlb_daily_ingestion",
     default_args=DEFAULT_ARGS,
     description="Ingest yesterday's MLB games, update Qdrant, rebuild model",
-    schedule_interval="0 10 * * *",  # 10 AM UTC = 6 AM ET
+    schedule_interval="0 12 * * *",  # 12 PM UTC = 8 AM ET (all games final)
     start_date=datetime(2026, 6, 1),
     catchup=False,
     tags=["mlb", "ingestion"],
