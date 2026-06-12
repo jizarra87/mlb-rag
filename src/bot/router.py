@@ -35,7 +35,13 @@ Available intents:
 - win_prediction: user wants to know which team will win a game
 - f5_total: user wants to know total runs in the first 5 innings, or an over/under line for F5
 - player_question: user asks about a specific player's stats, history, or a player vs player matchup
+- team_question: user asks about a team's recent game/result, not a specific player
 - general: anything else (rules, history, general baseball questions)
+
+For team_question, also set sub_intent:
+- team_last_game: user asks what happened in a team's most recent/last game, or its last score/result
+  (keywords in any language: "last game", "ultimo juego", "ultimo partido", "como les fue", "resultado", "score")
+  Put the team in "home_team".
 
 For player_question, also set sub_intent:
 - last_game: user asks what happened or how a player performed in their most recent game
@@ -63,8 +69,8 @@ Entity extraction rules:
 
 Respond ONLY with valid JSON, no explanation. Schema:
 {
-  "intent": "win_prediction" | "f5_total" | "player_question" | "general",
-  "sub_intent": "last_game" | "season_stats" | "vs_matchup" | "roster_vs_pitcher" | "vs_handedness" | null,
+  "intent": "win_prediction" | "f5_total" | "player_question" | "team_question" | "general",
+  "sub_intent": "last_game" | "season_stats" | "vs_matchup" | "roster_vs_pitcher" | "vs_handedness" | "team_last_game" | null,
   "home_team": "<full team name or null>",
   "away_team": "<full team name or null>",
   "home_starter": "<pitcher full name or null>",
