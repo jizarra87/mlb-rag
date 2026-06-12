@@ -282,13 +282,17 @@ def _load_summaries():
 
 
 def _handle_team_last_game(team: str) -> str:
+    from datetime import date as _date
+    today_str = _date.today().strftime("%Y-%m-%d")
+
     summaries = _load_summaries()
     team_l = team.lower()
 
     matched = [
         s for s in summaries
-        if team_l in s.get("home_team", "").lower()
-        or team_l in s.get("away_team", "").lower()
+        if (team_l in s.get("home_team", "").lower()
+            or team_l in s.get("away_team", "").lower())
+        and s.get("date", "") <= today_str
     ]
     if not matched:
         return f"No recent game data found for *{team}*."
