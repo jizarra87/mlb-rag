@@ -76,7 +76,8 @@ HELP_TEXT = (
 
     "_Powered by RAG + ML prediction models._\n"
     "_Use /help to see this message again._\n"
-    "_Use /status to check when data was last refreshed._"
+    "_Use /status to check when data was last refreshed._\n"
+    "_You can also send a 🎤 voice message instead of typing._"
 )
 
 
@@ -317,12 +318,47 @@ def _handle_team_last_game(team: str) -> str:
     )
 
 
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user.first_name
+    await update.message.chat.send_action("typing")
+
+    voice = update.message.voice or update.message.audio
+    tg_file = await context.bot.get_file(voice.file_id)
+
+    import io
+    from openai import OpenAI
+
+    buf = io.BytesIO()
+    await tg_file.download_to_memory(out=buf)
+    buf.seek(0)
+    buf.name = "voice.ogg"
+
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    transcript = client.audio.transcriptions.create(
+        model="whisper-1",
+        file=buf,
+    )
+    text = transcript.text.strip()
+    logger.info(f"Voice message from {user} transcribed: {text}")
+
+    if not text:
+        await update.message.reply_text("Sorry, I couldn't understand that voice message.")
+        return
+
+    await update.message.reply_text(f"🎤 _Heard:_ \"{text}\"", parse_mode="Markdown")
+    await process_text_message(update, text)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user.first_name
     logger.info(f"Message from {user}: {text}")
 
     await update.message.chat.send_action("typing")
+    await process_text_message(update, text)
+
+
+async def process_text_message(update: Update, text: str):
 
     try:
         parsed = route(text)
@@ -479,6 +515,7 @@ def main():
     app.add_handler(CommandHandler("help",  help_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     app.add_error_handler(error_handler)
 
     logger.info("Bot started — polling for messages...")
