@@ -70,7 +70,8 @@ HELP_TEXT = (
     "• `Who has the most Cy Young awards?`\n\n"
 
     "_Powered by RAG + ML prediction models._\n"
-    "_Use /help to see this message again._"
+    "_Use /help to see this message again._\n"
+    "_Use /status to check when data was last refreshed._"
 )
 
 
@@ -85,6 +86,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from src.rag.query_engine import _load_plays
+    plays = _load_plays()
+    dates = sorted(set(p.get("date") for p in plays if p.get("date")), reverse=True)
+    latest = dates[0] if dates else "unknown"
+    await update.message.reply_text(
+        f"📅 Data last refreshed through: *{latest}*\n"
+        f"Total plays loaded: {len(plays):,}",
+        parse_mode="Markdown"
+    )
 
 
 def _handle_last_game(player: str) -> str:
@@ -396,6 +409,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help",  help_command))
+    app.add_handler(CommandHandler("status", status_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
 
