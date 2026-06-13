@@ -65,6 +65,11 @@ HELP_TEXT = (
     "• `Dodgers roster stats vs Paul Skenes`\n"
     "• `Como batea el lineup de los Yankees contra Gerrit Cole?`\n\n"
 
+    "*Team last game*\n"
+    "Ask what happened in a team's most recent game:\n"
+    "• `What was the Yankees' last game?`\n"
+    "• `Como les fue a los Dodgers en su ultimo partido?`\n\n"
+
     "*General baseball questions*\n"
     "• `What is the DH rule?`\n"
     "• `Who has the most Cy Young awards?`\n\n"
@@ -259,6 +264,64 @@ def _handle_vs_matchup(batter: str, pitcher: str) -> str:
     )
 
 
+_summaries_cache = None
+
+
+def _load_summaries():
+    global _summaries_cache
+    if _summaries_cache is not None:
+        return _summaries_cache
+    import json
+    path = "data/game_summaries.json"
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            _summaries_cache = json.load(f)
+    else:
+        _summaries_cache = []
+    return _summaries_cache
+
+
+def _handle_team_last_game(team: str) -> str:
+    from datetime import date as _date
+    today_str = _date.today().strftime("%Y-%m-%d")
+
+    summaries = _load_summaries()
+    team_l = team.lower()
+
+    matched = [
+        s for s in summaries
+        if (team_l in s.get("home_team", "").lower()
+            or team_l in s.get("away_team", "").lower())
+        and s.get("date", "") <= today_str
+    ]
+    if not matched:
+        return f"No recent game data found for *{team}*."
+
+    latest = max(matched, key=lambda s: s.get("date", ""))
+
+    home, away = latest["home_team"], latest["away_team"]
+    home_score, away_score = latest.get("home_score", 0), latest.get("away_score", 0)
+    winner = latest.get("winner")
+
+    if winner:
+        result = f"🏆 *{winner}* won"
+    else:
+        result = "Game ended in a tie / incomplete"
+
+    starters_line = ""
+    if latest.get("home_starter") or latest.get("away_starter"):
+        starters_line = (
+            f"\n🔥 Starters: {latest.get('home_starter', '?')} vs {latest.get('away_starter', '?')}"
+        )
+
+    return (
+        f"*{team} — Last Game ({latest['date']})*\n\n"
+        f"{away} {away_score} @ {home} {home_score}\n"
+        f"{result}"
+        f"{starters_line}"
+    )
+
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
     await update.message.chat.send_action("typing")
@@ -388,6 +451,15 @@ async def process_text_message(update: Update, text: str):
                     f"{ou_line}"
                     f"_Based on starter ERA/WHIP/K9 and team OPS._"
                 )
+            else:
+                response = generate_answer(text)
+
+        elif intent == "team_question":
+            sub_intent = parsed.get("sub_intent")
+            team = parsed.get("home_team") or parsed.get("away_team")
+
+            if sub_intent == "team_last_game" and team:
+                response = _handle_team_last_game(team)
             else:
                 response = generate_answer(text)
 
