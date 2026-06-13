@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 
 DEFAULT_ARGS = {
     "owner": "mlb-rag",
@@ -185,4 +186,9 @@ with DAG(
         provide_context=True,
     )
 
-    t1 >> t2 >> t3
+    t4 = BashOperator(
+        task_id="restart_bot",
+        bash_command="docker restart mlb-bot",
+    )
+
+    t1 >> t2 >> t3 >> t4
